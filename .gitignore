@@ -1,0 +1,22 @@
+# 依存関係・ビルド成果物
+node_modules/
+dist/
+
+# 認証情報 — 契約上コミット禁止。.env.example のみをコミットする
+.env
+.env.*
+!.env.example
+
+# クライアントから受領した資料・認証情報の原本（納品ZIPにも含めない）
+APIキー/
+APIキー.zip
+image.png
+
+# デモデータ
+data/*.sqlite
+data/*.sqlite-journal
+
+# ログ・OS
+*.log
+Thumbs.db
+.DS_Store

@@ -1,0 +1,30 @@
+{
+  "name": "ai-automated-response",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI電話自動応答デモ — マンション工事日程受付 (Stage 1: 音声パイプライン疎通)",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/formbody": "^9.0.0",
+    "@fastify/websocket": "^11.3.0",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.12.3",
+    "twilio": "^6.1.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}
