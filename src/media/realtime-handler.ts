@@ -59,6 +59,12 @@ export class RealtimeHandler implements MediaHandler {
    * まるごと計上され、体感より大幅に長い値になる）。
    */
   private speechStoppedAtMs: number | null = null;
+  /**
+   * 発信者が今まさに話しているか。
+   * ツール結果を返したあとの response.create が、発信者の発話中に走ると
+   * AI が声を被せてしまうため、その抑止に使う。
+   */
+  private callerSpeaking = false;
   private responseLatencies: number[] = [];
   private transcripts: string[] = [];
   private startedAtMs = 0;
@@ -113,6 +119,7 @@ export class RealtimeHandler implements MediaHandler {
       onAudioDelta: (payload, itemId) => this.handleAudioDelta(payload, itemId),
       onSpeechStarted: () => this.handleSpeechStarted(),
       onSpeechStopped: () => {
+        this.callerSpeaking = false;
         this.speechStoppedAtMs = Date.now();
       },
       onIdleTimeout: () => {
@@ -204,6 +211,9 @@ export class RealtimeHandler implements MediaHandler {
    * clear に誘発された Twilio の mark エコーが先に配送されて markQueue が壊れる。
    */
   private handleSpeechStarted(): void {
+    // ゲート判定より前に立てる。barge-in が成立しない発話でも「話している」ことは事実。
+    this.callerSpeaking = true;
+
     // ゲート1: まだ再生されていない音声があるか。
     // これが無いと、再生が終わったあとの相槌（「はい」）のたびに
     // 過大な audio_end_ms で truncate を送りサーバーエラーになる。
@@ -291,6 +301,7 @@ export class RealtimeHandler implements MediaHandler {
         output = this.state.recordPreferredDates(args);
         break;
       case 'review_reception': {
+        this.state.markReviewed();
         // 記憶から復唱させず、記録済みの値を読み上げさせる。
         output = {
           ok: true,
@@ -318,8 +329,15 @@ export class RealtimeHandler implements MediaHandler {
     this.log.info({ tool: call.name, args, output }, 'ツール呼び出し');
 
     this.session.sendToolOutput(call.callId, output);
-    // ツール結果を返しただけではモデルは話し出さない。必ず response.create を送る。
-    this.session.createResponse();
+    // ツール結果を返しただけではモデルは話し出さない。通常は response.create が必要。
+    // ただし発信者が話している最中に送ると AI が声を被せる。
+    // その場合は送らない（turn_detection の create_response:true が
+    // 発話終了時に応答を作るため、取りこぼしにはならない）。
+    if (this.callerSpeaking) {
+      this.log.info({ tool: call.name }, '発信者の発話中のため response.create を送りません');
+    } else {
+      this.session.createResponse();
+    }
   }
 
   /**

@@ -40,7 +40,9 @@ export const config = {
     signatureMode: oneOf('TWILIO_SIGNATURE_MODE', ['off', 'log', 'enforce'] as const, 'log'),
   },
 
-  handler: oneOf('MEDIA_HANDLER', ['echo', 'realtime'] as const, 'echo'),
+  // 既定は realtime。echo は「音が出ない」ときの切り分け専用。
+  // 既定を echo にすると、設定を省いたクライアントが AI ではなくエコーに繋がってしまう。
+  handler: oneOf('MEDIA_HANDLER', ['echo', 'realtime'] as const, 'realtime'),
   echo: {
     batchFrames: Math.max(1, int('ECHO_BATCH_FRAMES', 1)),
     markEvery: Math.max(0, int('ECHO_MARK_EVERY', 25)),
@@ -55,7 +57,8 @@ export const config = {
     connectTimeoutMs: int('REALTIME_CONNECT_TIMEOUT_MS', 5000),
     /** server_vad の無音判定。既定500msは日本語の思考ポーズには短い。 */
     vadSilenceMs: int('VAD_SILENCE_MS', 800),
-    vadThreshold: Number(str('VAD_THRESHOLD', '0.5')),
+    // 0.5 では AI の発話を誤って中断する事象が実機で確認されたため 0.65。
+    vadThreshold: Number(str('VAD_THRESHOLD', '0.65')),
     vadIdleTimeoutMs: int('VAD_IDLE_TIMEOUT_MS', 10000),
     /** 0.25〜1.5。数字の復唱を聞き取りやすくするなら 0.9 前後を試す。 */
     outputSpeed: Number(str('OUTPUT_SPEED', '1.0')),

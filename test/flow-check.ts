@@ -70,7 +70,11 @@ console.log('\n--- 状態機械: 確定パターン ---');
   check('ハイフンを除去して保持', s.values.phone === '09012345678', String(s.values.phone));
 
   check('候補外のマンション名を拒否', s.recordResidentInfo({ building: 'サンプルマンション' }).ok === false);
+  check('失敗が数えられている', s.failureCount('building') === 1, String(s.failureCount('building')));
   s.recordResidentInfo({ building: 'ライオンズマンション' });
+  // 言い直して取れたらカウンタは戻す。戻さないと住人が訂正中に3回へ達し、
+  // AI が「おかけ直しください」と切り上げてしまう。
+  check('成功で失敗カウンタがリセットされる', s.failureCount('building') === 0, String(s.failureCount('building')));
   s.recordResidentInfo({ room: '305' });
   check('4項目が揃うと回答区分を求める', s.nextStep.kind === 'response_type');
 
@@ -78,6 +82,10 @@ console.log('\n--- 状態機械: 確定パターン ---');
   const rc = s.recordResponse('confirm');
   check('confirm を受理し完了へ進む', rc.ok && s.nextStep.kind === 'complete', rc.next);
   check('confirm では希望日を拒否', s.recordPreferredDates({ date1: '2026-10-01' }).ok === false);
+  // CLAUDE.md「通話終了前に受付内容を復唱して確認」を構造的に担保する
+  const beforeReview = s.complete();
+  check('復唱前の完了を拒否', beforeReview.ok === false && beforeReview.next === 'review', beforeReview.next);
+  s.markReviewed();
   check('complete_reception が成功', s.complete().ok === true);
   check('完了フラグが立つ', s.isComplete === true);
 }
@@ -94,6 +102,7 @@ console.log('\n--- 状態機械: 変更希望パターン ---');
   s.recordResponse('change');
   check('change なら第一希望を求める', s.nextStep.kind === 'preferred_date' && s.nextStep.index === 1);
 
+  s.markReviewed();
   check('希望日が揃う前の完了を拒否', s.complete().ok === false);
 
   check(
@@ -121,6 +130,7 @@ console.log('\n--- 状態機械: 辞退パターン ---');
   s.recordResidentInfo({ room: '101' });
   s.recordResponse('decline');
   check('decline なら希望日なしで完了へ', s.nextStep.kind === 'complete');
+  s.markReviewed();
   check('decline で完了できる', s.complete().ok === true);
 
   const sum = s.summaryForReadback(d(2026, 9, 24));

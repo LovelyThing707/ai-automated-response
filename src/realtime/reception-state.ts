@@ -68,6 +68,8 @@ export class ReceptionState {
   /** 第一〜第三希望日（ISO 文字列）。index 0 が第一希望。 */
   private readonly preferred: Array<string | undefined> = [undefined, undefined, undefined];
   private completed = false;
+  /** review_reception を通ったか。CLAUDE.md の「通話終了前に復唱して確認」を構造的に担保する。 */
+  private reviewed = false;
 
   private readonly handledCallIds = new Set<string>();
   private readonly failures: Record<string, number> = {};
@@ -142,6 +144,10 @@ export class ReceptionState {
     }
   }
 
+  markReviewed(): void {
+    this.reviewed = true;
+  }
+
   alreadyHandled(callId: string): boolean {
     return this.handledCallIds.has(callId);
   }
@@ -168,6 +174,10 @@ export class ReceptionState {
       if (result.ok) {
         this.slots[slot] = result.value;
         recorded.push(slot);
+        // 聞き直して取れたら失敗回数はリセットする。
+        // 累積のままだと、住人が言い直している最中に3回に達し、
+        // AI が「おかけ直しください」と通話を切り上げてしまう。
+        delete this.failures[slot];
       } else {
         this.failures[slot] = (this.failures[slot] ?? 0) + 1;
         rejected.push({ field: slot, reason: result.reason });
@@ -234,6 +244,7 @@ export class ReceptionState {
       }
       this.preferred[n - 1] = check.iso;
       recorded.push(field);
+      delete this.failures[field];
       readback[field] = check.readback;
     });
 
@@ -252,6 +263,17 @@ export class ReceptionState {
     }
     if (!this.datesSatisfied) {
       return this.result([], [{ field: 'complete', reason: '変更希望の場合は第一希望日が必要です' }]);
+    }
+    if (!this.reviewed) {
+      // result() を通さない。あれは全ての差し戻しに「丁寧に聞き返してください」を
+      // 付けるため、住人に聞き返せという誤った指示になる。
+      return {
+        ok: false,
+        recorded: [],
+        rejected: [{ field: 'complete', reason: 'まだ復唱していません' }],
+        next: 'review',
+        hint: 'review_reception を呼び、戻り値をそのまま読み上げて確認を取ってから complete_reception を呼んでください。',
+      };
     }
     this.completed = true;
     return {
