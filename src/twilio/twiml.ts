@@ -40,15 +40,26 @@ export function buildVoiceTwiML(options: TwiMLOptions): string {
     .map(([name, value]) => `      <Parameter name="${escapeXml(name)}" value="${escapeXml(value)}" />`)
     .join('\n');
 
+  // <Connect> より前に <Say> は置かない。
+  //   Stage 2 以降は AI 自身が挨拶するため、ここで喋ると挨拶が二重になる。
+  //   （TwiML の <Say> は outbound トラックなので AI には聞こえず、
+  //     AI は自分より前に何が喋られたかを知らないまま重ねて名乗ってしまう）
+  // エコーモードのときだけ、何が起きているか分かるよう一言入れる。
+  const isEcho = config.handler === 'echo';
+  const introSay = isEcho
+    ? '<Say language="ja-JP">エコーテストを開始します。何か話しかけてください。</Say>'
+    : '';
+  const streamName = isEcho ? 'echo' : 'reception';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say language="ja-JP">エコーテストを開始します。何か話しかけてください。</Say>
+  ${introSay}
   <Connect>
-    <Stream url="${escapeXml(wsUrl)}" name="stage1-echo" statusCallback="${escapeXml(statusUrl)}" statusCallbackMethod="POST">
+    <Stream url="${escapeXml(wsUrl)}" name="${streamName}" statusCallback="${escapeXml(statusUrl)}" statusCallbackMethod="POST">
 ${params}
     </Stream>
   </Connect>
-  <Say language="ja-JP">接続が終了しました。ありがとうございました。</Say>
+  <Say language="ja-JP">ありがとうございました。失礼いたします。</Say>
 </Response>`;
 }
 
