@@ -25,7 +25,6 @@ export async function buildServer() {
 
   app.get('/health', async () => ({
     status: 'ok',
-    stage: 1,
     handler: config.handler,
     signatureMode: config.twilio.signatureMode,
   }));

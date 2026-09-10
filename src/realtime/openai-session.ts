@@ -28,6 +28,8 @@ export interface OpenAiSessionEvents {
   onAudioDelta(payloadBase64: string, itemId: string): void;
   /** 発信者が話し始めた。barge-in の唯一の起点。 */
   onSpeechStarted(): void;
+  /** 発信者が話し終わった。ここからが発信者の体感待ち時間の起点。 */
+  onSpeechStopped(): void;
   /** 無音が続いた（server_vad の idle_timeout_ms）。 */
   onIdleTimeout(): void;
   /** AI の発話内容（ログ用）。 */
@@ -173,6 +175,10 @@ export class OpenAiSession {
 
       case 'input_audio_buffer.speech_started':
         this.events.onSpeechStarted();
+        return;
+
+      case 'input_audio_buffer.speech_stopped':
+        this.events.onSpeechStopped();
         return;
 
       case 'input_audio_buffer.timeout_triggered':

@@ -49,7 +49,12 @@ export class RealtimeHandler implements MediaHandler {
   private audioDeltas = 0;
   private bargeInCount = 0;
   private truncateSkipped = 0;
-  private speechStartedAtMs: number | null = null;
+  /**
+   * 発信者が話し終わった時刻。発信者が体感する待ち時間の起点はここであって
+   * speech_started ではない（そちらだと発話そのものの長さと VAD の無音待ちが
+   * まるごと計上され、体感より大幅に長い値になる）。
+   */
+  private speechStoppedAtMs: number | null = null;
   private responseLatencies: number[] = [];
   private transcripts: string[] = [];
   private startedAtMs = 0;
@@ -81,6 +86,9 @@ export class RealtimeHandler implements MediaHandler {
       onReady: () => this.handleReady(),
       onAudioDelta: (payload, itemId) => this.handleAudioDelta(payload, itemId),
       onSpeechStarted: () => this.handleSpeechStarted(),
+      onSpeechStopped: () => {
+        this.speechStoppedAtMs = Date.now();
+      },
       onIdleTimeout: () => this.log.info('無音タイムアウト（idle_timeout_ms）'),
       onTranscript: (text) => this.handleTranscript(text),
       onResponseDone: (info) => this.handleResponseDone(info),
@@ -136,9 +144,9 @@ export class RealtimeHandler implements MediaHandler {
       this.itemGeneratedMs = 0;
       this.markedUpToMs = 0;
 
-      if (this.speechStartedAtMs !== null) {
-        this.responseLatencies.push(Date.now() - this.speechStartedAtMs);
-        this.speechStartedAtMs = null;
+      if (this.speechStoppedAtMs !== null) {
+        this.responseLatencies.push(Date.now() - this.speechStoppedAtMs);
+        this.speechStoppedAtMs = null;
       }
     }
 
@@ -161,8 +169,6 @@ export class RealtimeHandler implements MediaHandler {
    * clear に誘発された Twilio の mark エコーが先に配送されて markQueue が壊れる。
    */
   private handleSpeechStarted(): void {
-    this.speechStartedAtMs = Date.now();
-
     // ゲート1: まだ再生されていない音声があるか。
     // これが無いと、再生が終わったあとの相槌（「はい」）のたびに
     // 過大な audio_end_ms で truncate を送りサーバーエラーになる。
@@ -268,7 +274,8 @@ export class RealtimeHandler implements MediaHandler {
         bargeInCount: this.bargeInCount,
         truncateSkipped: this.truncateSkipped,
         marksOutstanding: this.markQueue.length,
-        // 発話終了から AI の最初の音声が届くまで。体感レイテンシの主要因。
+        // 発話終了（speech_stopped）から AI の最初の音声が届くまで。
+        // これが発信者の体感する待ち時間そのもの。
         responseLatencyMs: {
           samples: lat.length,
           avgMs: avgLat,
