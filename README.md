@@ -1,10 +1,12 @@
 # AI電話自動応答デモ — マンション工事日程受付
 
-工事会社が、マンション住人から工事日程の回答を電話で受け付ける AI 自動応答システムのデモ。
+工事会社が、マンション住人から工事日程の回答を電話で受け付ける AI 自動応答システムのデモです。
 
-**現在の実装段階: Stage 1（音声パイプラインの疎通確認）**
-Twilio に着信 → WebSocket 接続 → 受信音声をそのままエコーバックするところまで。
-OpenAI Realtime API との接続は Stage 2 で実装します。
+住人が電話をかけると AI が日本語で応対し、氏名・電話番号・マンション名・部屋番号を伺ったうえで、
+仮予約日に対する「確定 / 変更希望 / 辞退」を受け付けます。変更希望の場合は第一〜第三希望日を伺います。
+受け付けた内容は管理画面で確認できます。
+
+**社内確認用のデモであり、本番運用システムではありません。**
 
 ---
 
@@ -14,8 +16,11 @@ OpenAI Realtime API との接続は Stage 2 で実装します。
 |---|---|
 | Node.js | 20.11 以上（開発・確認は v24.16.0） |
 | npm | 10 以上 |
-| トンネル | ngrok など。Twilio は `wss://`（TLS）でしか接続しないため、ローカル開発では必須 |
 | Twilio | 着信可能な電話番号と、その番号の Voice Webhook を変更できる権限 |
+| OpenAI | Realtime API が利用可能な API キー |
+| トンネル | ローカルで動かす場合のみ必要（Twilio は `wss://` でしか接続しないため） |
+
+`better-sqlite3` はプレビルドバイナリが配布されるため、**ビルドツールのインストールは不要**です。
 
 ---
 
@@ -27,7 +32,7 @@ npm install
 
 > **注意**: 環境変数 `NODE_ENV=production` が設定されていると、npm は devDependencies
 > （TypeScript / tsx）を**黙ってスキップ**します。`npm run dev` が
-> 「'tsc' is not recognized」で失敗する場合はこれが原因です。その場合は:
+> 「'tsc' is not recognized」で失敗する場合はこれが原因です。
 >
 > ```powershell
 > npm install --include=dev
@@ -39,17 +44,20 @@ npm install
 Copy-Item .env.example .env
 ```
 
-`.env` を開いて以下を設定してください（Stage 1 で必要なのは Twilio の3項目のみ。
-値が空でもエコーテストは動きますが、署名検証は無効になります）。
+`.env` を開いて、最低限つぎの項目を設定してください。
 
 | 変数 | 内容 |
 |---|---|
-| `TWILIO_ACCOUNT_SID` | Twilio Console の Account Info に表示される `AC…` |
-| `TWILIO_AUTH_TOKEN` | 同上。**本プロジェクトでの用途は署名検証のみ**（REST API は呼びません） |
+| `OPENAI_API_KEY` | OpenAI の API キー |
+| `TWILIO_ACCOUNT_SID` | Twilio Console ホームに表示される `AC…` |
+| `TWILIO_AUTH_TOKEN` | 同ホームの「API keys and Auth tokens」から取得 |
 | `TWILIO_PHONE_NUMBER` | 受付用の着信番号（E.164形式。例 `+815017225690`） |
-| `TWILIO_SIGNATURE_MODE` | `off` / `log` / `enforce`。**最初は `log` のまま**にし、署名が通ることをログで確認してから `enforce` にしてください |
+| `TENTATIVE_DATE` | 全通話で案内する仮予約日（例 `2026-09-24`） |
 
-**`.env` は絶対にコミットしないでください（契約上の義務）。** リポジトリと納品ZIPに含めるのは `.env.example` のみです。
+各変数の詳細は `.env.example` のコメントと `docs/external-services.md` を参照してください。
+
+> **`.env` は絶対にコミット・再配布しないでください（契約上の義務）。**
+> リポジトリと納品ZIPに含めるのは `.env.example` のみです。
 
 ---
 
@@ -59,153 +67,220 @@ Copy-Item .env.example .env
 # 開発（ファイル変更で自動再起動）
 npm run dev
 
-# 本番相当（TypeScript をビルドしてから実行）
+# 本番相当（ビルドしてから実行）
 npm run build
 npm start
 ```
 
-起動できていることの確認:
+起動確認:
 
 ```powershell
 curl http://localhost:3000/health
-# → {"status":"ok","stage":1,"handler":"echo","signatureMode":"log"}
-
-# TwiML はブラウザで開いても確認できます（GET/POST 両対応にしてあります）
-start http://localhost:3000/voice
+# → {"status":"ok","handler":"realtime","signatureMode":"log"}
 ```
 
 ---
 
-## 4. トンネル（ローカル開発時）
+## 4. 公開URLの用意（ローカル開発時）
 
-別のターミナルで:
+Twilio は TLS 付きの `wss://` でしか接続しないため、ローカルで動かす場合はトンネルが必要です。
 
 ```powershell
-ngrok http 3000
-# → Forwarding  https://xxxx-xx-xx-xx-xx.ngrok-free.app -> http://localhost:3000
+cloudflared tunnel --url http://localhost:3000
+# → https://<ランダム>.trycloudflare.com が発行される
 ```
 
+- アカウント登録は不要です（Quick Tunnel）。
 - `--host-header=rewrite` は**付けないでください**（署名検証が通らなくなります）。
-- ngrok 無料プランは再起動のたびにホスト名が変わりますが、`PUBLIC_HOSTNAME` を
-  空のままにしておけば、TwiML の `wss://` URL はリクエストの Host ヘッダから
-  自動生成されるため修正不要です。
-- `http://127.0.0.1:4040` で Twilio からのリクエストを実際に覗けます。切り分けに有用です。
+- URL は再起動のたびに変わります。変わったら Twilio 側の Webhook を貼り直してください。
+  **コードの修正は不要**です（TwiML の `wss://` URL はリクエストの Host ヘッダから自動生成されます）。
+
+固定ドメインを持つサーバーに配置する場合は、トンネルは不要です。`.env` の `PUBLIC_HOSTNAME` に
+ホスト名を設定してください。
 
 ---
 
 ## 5. Twilio 電話番号の設定
 
-Console またはIncomingPhoneNumber REST API で、番号の「A CALL COMES IN」を
-`https://<ngrokのホスト名>/voice`（HTTP **POST**）に設定します。
+Console の **Phone Numbers → Overview → 該当番号 → Configuration details → Voice and emergency address** で:
 
-Twilio CLI を使う場合:
+| 設定項目 | 値 |
+|---|---|
+| Primary method | Webhook |
+| Webhook URL | `https://<公開ホスト名>/voice` |
+| HTTP Format | **HTTP POST** |
 
-```powershell
-twilio phone-numbers:update PNd0b30ac64194898182fe1d27b5e2b366 `
-  --voice-url https://xxxx-xx-xx-xx-xx.ngrok-free.app/voice `
-  --voice-method POST
+`HTTP Format` の既定は GET です。**POST に変更してください。** GET のままだと Twilio が
+`CallSid` などのパラメータを送らず、署名検証の計算方法も変わります。
+
+保存後、ページを再読み込みして Webhook URL と POST が反映されていることを確認してください。
+
+---
+
+## 6. 使い方
+
+### 6-1. 電話をかける
+
+設定した番号に電話をかけると、AI が応対します。
+
+1. AI が会社名を名乗って挨拶します
+2. お名前の読み → 電話番号 → マンション名 → 部屋番号 の順に、1項目ずつ聞かれます
+3. 各項目は復唱して確認されます
+4. 仮予約日が曜日つきで案内されます
+5. 「確定 / 変更希望 / 辞退」を答えます
+6. 変更希望の場合は、第一〜第三希望日を1つずつ聞かれます
+7. 受付内容が復唱され、確認が取れると AI 側から通話を終了します
+
+**受話器か有線イヤホンを使ってください。** スピーカーフォンでは音が回り込んでハウリングします。
+
+### 6-2. 管理画面
+
+```text
+http://localhost:3000/admin
 ```
 
-> CLI は `localhost` の URL を明示的に拒否します。必ずトンネルの https URL を指定してください。
+- 一覧: 受付日時・お名前・マンション名・部屋番号・回答内容・受付状況（新しい順）
+- 詳細: データモデルの全項目
+- 絞り込み: マンション名、受付状況、キーワード（お名前・電話番号・部屋番号の部分一致）
+- デモデータ一括クリア（確認ダイアログ付き）
+
+> **認証はありません**（仕様どおり）。トンネル経由で公開している間は、URL を知っている人なら
+> 誰でも閲覧および一括クリアが可能です。共有範囲にご注意ください。
 
 ---
 
-## 6. 動作確認（実機通話）
+## 7. 動作確認
 
-**必ず受話器または有線ヘッドセットで**かけてください。スピーカーフォンでは
-音響フィードバックでハウリングし、正しい動作かどうか判断できません。
+### 7-1. 実機通話なしの検証
 
-### 成功しているときの聞こえ方
-
-1. 日本語の案内（「エコーテストを開始します」）が鳴る
-2. 「あ、い、う、え、お」と話すと、**0.5〜1秒ほど遅れて自分の声がそのまま返る**
-3. 音は連続していて、途切れ・クリック音・金属的な歪みが無い
-4. 話し続けても**遅延が一定のまま**（だんだん伸びていかない）
-5. 電話を切ると、サーバーのログに `stop` → `WebSocket クローズ` → `エコー終了サマリ` が出る
-6. Twilio Console の Debugger に **31921 が赤く記録される（これは正常です）**
-
-> 31921 は「サーバーが WebSocket を閉じた」という記録です。ソケットを自分で閉じるのは
-> 仕様上正しいストリーム終了手順ですが、Twilio は Log Level = ERROR で記録します。
-> 毎通話後に必ず出るため、追いかける必要はありません。
-
-### 失敗パターンと切り分け
-
-| 聞こえ方 | 最有力の原因 | 確認場所 |
-|---|---|---|
-| 案内は鳴るが**完全な無音**（切断はされない） | 送信メッセージの不備。`streamSid` 欠落／余計なフィールド混入／バイナリ送信 | Twilio Console の 31950・31951（**各ストリーム1回しか出ません**） |
-| 案内の**直後に切断** | WebSocket ハンドラ内の例外、`<Stream url>` にクエリ文字列 | 31920 / 31921、`/stream-status` の `StreamError` |
-| **呼び出し音のあと無音で切れる**（案内すら鳴らない） | Webhook URL 誤り／サーバー未起動／ngrok 未起動／`HOST` が 127.0.0.1 | 31901・31902・31904。ngrok の 4040 に着信が出るか |
-| **ブツ切り・金属音** | フレーム欠落。Twilio 側の受信バッファ溢れの可能性もあり自コードとは限らない | 31930（Buffer Overflow）。サーバーログの「sequenceNumber が不連続」 |
-| **遅延がだんだん伸びる** | 送信バッファの累積 | サーバーログの `mark 往復` の値が増え続けていないか |
-| **猛烈なハウリング** | スピーカーフォンで試している | 受話器に持ち替える |
-| **話し始めの音が欠ける** | メッセージ取りこぼし | サーバーログの `start` と最初の `媒体フレーム実測` の時刻差 |
-| **無言が続くと切れる** | トンネル／プロキシのアイドルタイムアウト | 31903 |
-
-> **重要**: 31920 / 31921 / 31924 / 31930 / 31931 / 31941 / 31950 / 31951 は
-> **すべて WebSocket 上には現れません**。Twilio Console Debugger か、
-> `/stream-status` に届く `StreamError` にしか出ません。
-> ストリームが張れないときはまずそこを見てください。
-
----
-
-## 7. 実機通話なしでのローカル検証
-
-Twilio のメッセージ列を再現してプロトコル処理を検証できます。通話料も
-Media Streams 料金もかかりません。
+通話料も API 利用料もかからない検証です。コードを変更したらまずこれを実行してください。
 
 ```powershell
-# 別ターミナルでサーバーを起動しておく
-npm run dev
+# 型チェック
+npm run typecheck
 
-# 検証を実行
+# 日付ユーティリティと受付状態機械（43項目）
+npx tsx test/flow-check.ts
+
+# DB層: 保存・上書き・絞り込み・詳細・一括クリア（22項目）
+$env:DATABASE_PATH="./data/_test.sqlite"; npx tsx test/db-check.ts
+
+# OpenAI のセッション設定とツール登録（10項目・音声は流さないためほぼ無課金）
+npx tsx test/realtime-check.ts
+
+# Twilio Media Streams のプロトコル（サーバー起動中に別ターミナルで・22項目）
 node test/protocol-sim.mjs
 ```
 
-TwiML の構造、`media` の往復、送信メッセージのフィールド構成、
-トラックの取り違え、`start` 前の送信抑止などを確認します。
-**ただしこれは音質・遅延・実際の音声品質を検証するものではありません。**
-それらは実機通話でしか分かりません。
+管理画面を実データなしで確認したい場合は、架空データを投入できます。
+
+```powershell
+npx tsx test/seed-demo.ts
+```
+
+### 7-2. 実機通話でしか分からないこと
+
+音質・体感遅延・割り込みの自然さは通話しないと分かりません。
+`docs/test-results.md` に実測値と既知の制約をまとめています。
 
 ---
 
-## 8. エンドポイント
+## 8. うまく動かないとき
+
+| 症状 | 最有力の原因 | 確認場所 |
+|---|---|---|
+| 呼び出し音のあと**無音で切れる**（挨拶すら鳴らない） | Webhook URL 誤り／サーバー未起動／トンネル未起動／`HOST` が 127.0.0.1 | Twilio Console の Debugger（31901・31902・31904）。トンネルにリクエストが届いているか |
+| 挨拶は鳴るが**完全な無音** | 音声フォーマットの不一致、または送信メッセージの不備 | サーバーログの `session.updated`。`audio/pcmu` と `near_field` が反映されているか |
+| 挨拶の**直後に切断** | WebSocket ハンドラ内の例外 | 31920 / 31921、`/stream-status` の `StreamError` |
+| **ブツ切り・金属音** | フレーム欠落、または Twilio 側の受信バッファ溢れ | 31930。サーバーログの `sequenceNumber が不連続` |
+| AI が**話している途中で勝手に止まる** | VAD が過敏 | `.env` の `VAD_THRESHOLD` を上げる（0.65 → 0.7） |
+| 考えている間に**話を遮られる** | 無音判定が短い | `.env` の `VAD_SILENCE_MS` を上げる（800 → 1000） |
+| 通話が終わらない／締めの挨拶が途中で切れる | 再生バッファの滞留 | サーバーログの `再生の進行が止まりました` / `上限時間` |
+| 管理画面に**記録が出ない** | 保存の失敗 | サーバーログの `受付内容の保存に失敗しました` |
+
+> Twilio Console の Debugger に毎通話 **31921** が ERROR として記録されますが、これは
+> サーバーが WebSocket を閉じた記録であり、仕様上正しい終了手順です。**異常ではありません。**
+>
+> 31920 / 31921 / 31924 / 31930 / 31931 / 31941 / 31950 / 31951 は
+> **WebSocket 上には現れません**。Twilio Console か `/stream-status` にしか出ません。
+
+### 疎通だけを切り分けたいとき
+
+`.env` の `MEDIA_HANDLER` を `echo` にすると、OpenAI を経由せず受信音声をそのまま返します。
+「音が出ない」ときに、Twilio 側の問題か OpenAI 側の問題かを切り分けられます。
+
+---
+
+## 9. エンドポイント
 
 | メソッド | パス | 役割 |
 |---|---|---|
 | `GET` / `POST` | `/voice` | 着信 webhook。TwiML を返す |
 | `GET`(upgrade) | `/media-stream` | Twilio Media Streams の接続先 |
-| `POST` | `/stream-status` | `<Stream statusCallback>` の受け口。**ストリームが張れないときの原因はここに出ます** |
+| `POST` | `/stream-status` | `<Stream statusCallback>` の受け口 |
 | `POST` | `/call-status` | 通話ステータス（任意） |
 | `GET` | `/health` | 起動確認 |
+| `GET` | `/admin` | 受付一覧 |
+| `GET` | `/admin/receptions/:id` | 受付詳細 |
+| `POST` | `/admin/clear` | デモデータ一括クリア |
 
 ---
 
-## 9. Stage 1 で実測する項目
+## 10. ディレクトリ構成
 
-Twilio が公式に文書化していない値が複数あるため、初回通話のログで実測します。
-結果は納品物5（テスト結果および既知の制約事項）に記載します。
+```text
+src/
+├── server.ts                    Fastify 生成・ルート登録・起動
+├── config.ts                    .env 読み込みと起動時バリデーション
+├── logger.ts                    通話単位の構造化ログ
+├── routes/
+│   ├── voice.ts                 着信 webhook（TwiML）
+│   ├── media-stream.ts          WebSocket 受け口。Twilio プロトコルを吸収
+│   ├── stream-status.ts         Stream / Call のステータスコールバック
+│   └── admin.ts                 管理画面
+├── twilio/
+│   ├── protocol.ts              メッセージ型とパーサ
+│   ├── sender.ts                media / mark / clear の送信
+│   ├── twiml.ts                 TwiML 生成
+│   └── signature.ts             X-Twilio-Signature 検証
+├── media/
+│   ├── handler.ts               MediaHandler インターフェース
+│   ├── echo-handler.ts          疎通確認用（MEDIA_HANDLER=echo）
+│   └── realtime-handler.ts      OpenAI 中継・barge-in・終話
+├── realtime/
+│   ├── openai-session.ts        OpenAI Realtime の WebSocket クライアント
+│   ├── reception-state.ts       受付状態機械と入力検証
+│   ├── dates.ts                 日付と曜日（サーバー側で計算）
+│   ├── instructions.ts          モデルへの指示文
+│   └── tools.ts                 function calling 定義
+└── db/index.ts                  SQLite 保存と検索
 
-- 1フレームのバイト長（160バイトか）と base64 長（216文字か）
-- `timestamp` の増分（20ms か）と実測フレームレート（50fps か）
-- 無音時にフレームが抑制されるか
-- `sequenceNumber` の欠落の有無
-- `mark` の往復時間（再生バッファ深度の目安）
-- Twilio が WebSocket の ping を送るか、アイドルで切断されるか
-- WebSocket のクローズコードと理由
-- `<Parameter>` が `customParameters` として届くか（Stage 3 以降で必須）
+docs/
+├── external-services.md         納品物3: 外部サービス設定内容一覧
+├── licenses.md                  納品物4: OSSライセンス情報一覧
+└── test-results.md              納品物5: テスト結果と既知の制約
 
-これらは `LOG_MEDIA_FRAMES` と `ECHO_MARK_EVERY` で制御でき、通話終了時に
-「エコー終了サマリ」としてまとめて出力されます。
+test/                            実機通話なしの検証スクリプト
+```
+
+`media/handler.ts` の `MediaHandler` インターフェースがトランスポート層と応答ロジックの境界です。
+`MEDIA_HANDLER` を切り替えるだけで、エコー応答と AI 応答を差し替えられます。
 
 ---
 
-## 10. 既知の制約（Stage 1 時点）
+## 11. 対象範囲
 
-- **音声フォーマットは G.711 μ-law 8kHz mono 固定。** Twilio Media Streams に選択肢はありません。
-- **Media Streams に日本リージョンはありません**（US1 / IE1 / AU1 のみ）。
-  Console の `tokyo` は SIP/REST の Edge Location であって Media Engine の位置ではないため、
-  サーバーを日本に置いても音声の経路は短くなりません。日本からの通話は音声が太平洋を往復します。
-  Stage 2 のレイテンシはこの前提で評価してください。
-- `MEDIA_HANDLER=realtime` は Stage 2 で実装します。現在は `echo` のみです。
-- 署名検証は既定で `log`（検証するが通す）です。Auth Token 設定後、
-  ログで検証成功を確認してから `enforce` にしてください。
+本デモに**含まれない**もの（契約で対象外と定義済み）:
+
+- 管理者による工事日程の選択・確定機能
+- 住人への自動発信（outbound calling）
+- 後日かけ直しての予約状況照会
+- 住人マスタとの照合、既存システム連携
+- 受付内容の編集、個別削除
+- 認証、権限管理
+- 冗長化、監視、バックアップ、大量同時通話対応
+
+仮予約日は住人ごとではなく、`.env` の `TENTATIVE_DATE` で指定した**1つの日付を全通話で案内**します
+（住人マスタとの照合が対象外のため）。
+
+既知の制約は `docs/test-results.md` にまとめています。
