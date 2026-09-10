@@ -16,6 +16,8 @@
   "dependencies": {
     "@fastify/formbody": "^9.0.0",
     "@fastify/websocket": "^11.3.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^13.0.3",
     "dotenv": "^17.4.2",
     "fastify": "^5.12.3",
     "twilio": "^6.1.0",

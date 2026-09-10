@@ -68,6 +68,8 @@ export const config = {
   /** 仮予約日。住人マスタとの照合はスコープ外のため、設定値を全通話で案内する。 */
   tentativeDate: str('TENTATIVE_DATE'),
 
+  databasePath: str('DATABASE_PATH', './data/demo.sqlite'),
+
   logLevel: str('LOG_LEVEL', 'info'),
   logMediaFrames: Math.max(0, int('LOG_MEDIA_FRAMES', 20)),
 } as const;

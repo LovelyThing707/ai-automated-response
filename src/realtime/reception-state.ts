@@ -263,6 +263,34 @@ export class ReceptionState {
     };
   }
 
+  /** DB 保存用の素の値。日付は ISO、回答区分は日本語（管理画面にそのまま出す）。 */
+  snapshot(): {
+    name_kana: string | null;
+    phone: string | null;
+    building: string | null;
+    room: string | null;
+    response_type: string | null;
+    preferred_date_1: string | null;
+    preferred_date_2: string | null;
+    preferred_date_3: string | null;
+  } {
+    return {
+      name_kana: this.slots.name_kana ?? null,
+      phone: this.slots.phone ?? null,
+      building: this.slots.building ?? null,
+      room: this.slots.room ?? null,
+      response_type: this.responseType ? RESPONSE_LABEL[this.responseType] : null,
+      preferred_date_1: this.preferred[0] ?? null,
+      preferred_date_2: this.preferred[1] ?? null,
+      preferred_date_3: this.preferred[2] ?? null,
+    };
+  }
+
+  /** 何か1つでも聞き取れているか。何も無い通話は保存しない。 */
+  get hasAnything(): boolean {
+    return SLOT_ORDER.some((s) => this.slots[s] !== undefined) || this.responseType !== null;
+  }
+
   /** 復唱用のまとめ。Stage 5 の CONFIRM_SUMMARY で使う。 */
   summaryForReadback(tentative: CalendarDate): Record<string, string> {
     const out: Record<string, string> = {

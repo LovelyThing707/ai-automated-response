@@ -84,6 +84,16 @@ export const TOOLS = [
   },
   {
     type: 'function',
+    name: 'review_reception',
+    description:
+      '受付内容の復唱用データを取得する。complete_reception を呼ぶ**直前に必ず呼ぶこと。**' +
+      '戻り値には記録済みの内容が、そのまま読み上げられる形で入っている。' +
+      '**記憶から復唱せず、この戻り値の文言を読み上げること。** ' +
+      '特に日付は曜日つきの正しい文字列が入っているので、自分で曜日を計算してはいけない。',
+    parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    type: 'function',
     name: 'complete_reception',
     description:
       '受付を完了して通話を終える。受付内容をすべて復唱し、住人の確認が取れてから呼ぶこと。' +

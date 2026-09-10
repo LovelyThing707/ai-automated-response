@@ -1,9 +1,11 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { config } from '../config.js';
 import { buildInstructions, resolveTentativeDate } from '../realtime/instructions.js';
-import { formatJa, jstToday } from '../realtime/dates.js';
+import { formatJa, jstToday, type CalendarDate } from '../realtime/dates.js';
 import { OpenAiSession } from '../realtime/openai-session.js';
 import { ReceptionState } from '../realtime/reception-state.js';
+import { saveReception } from '../db/index.js';
+import { toIso } from '../realtime/dates.js';
 import { payloadByteLength } from '../twilio/protocol.js';
 import type { MediaHandler, StreamContext } from './handler.js';
 
@@ -65,6 +67,9 @@ export class RealtimeHandler implements MediaHandler {
   private state = new ReceptionState();
   private toolCalls = 0;
   private toolRejections = 0;
+  /** 保存済みか。complete と通話終了の両方から呼ばれるため。 */
+  private saved = false;
+  private tentativeDate: CalendarDate | null = null;
 
   // --- 終話（complete_reception）---
   /** 受付完了。締めの挨拶を再生し終えたらソケットを閉じる。 */
@@ -91,6 +96,7 @@ export class RealtimeHandler implements MediaHandler {
     const tentativeDate = resolveTentativeDate(today);
     const instructions = buildInstructions({ today, tentativeDate });
     this.state = new ReceptionState(today, tentativeDate);
+    this.tentativeDate = tentativeDate;
 
     this.log.info(
       {
@@ -284,10 +290,22 @@ export class RealtimeHandler implements MediaHandler {
       case 'record_preferred_dates':
         output = this.state.recordPreferredDates(args);
         break;
+      case 'review_reception': {
+        // 記憶から復唱させず、記録済みの値を読み上げさせる。
+        output = {
+          ok: true,
+          summary: this.tentativeDate ? this.state.summaryForReadback(this.tentativeDate) : {},
+          hint: 'この内容をそのまま読み上げて確認を取り、よければ complete_reception を呼んでください。',
+        };
+        break;
+      }
       case 'complete_reception': {
         const result = this.state.complete();
         output = result;
-        if (result.ok) this.armHangup();
+        if (result.ok) {
+          this.persist('受付完了');
+          this.armHangup();
+        }
         break;
       }
       default:
@@ -302,6 +320,30 @@ export class RealtimeHandler implements MediaHandler {
     this.session.sendToolOutput(call.callId, output);
     // ツール結果を返しただけではモデルは話し出さない。必ず response.create を送る。
     this.session.createResponse();
+  }
+
+  /**
+   * DB へ保存する。call_sid で一意にしているため、完了時と通話終了時の
+   * 両方から呼ばれても行は増えない（完了時の内容で上書きされる）。
+   */
+  private persist(status: '受付完了' | '受付未完了'): void {
+    if (!this.ctx) return;
+    if (this.saved && status === '受付未完了') return; // 完了済みを未完了で上書きしない
+    try {
+      const snap = this.state.snapshot();
+      saveReception({
+        received_at: new Date().toISOString(),
+        ...snap,
+        tentative_date: this.tentativeDate ? toIso(this.tentativeDate) : null,
+        status,
+        call_sid: this.ctx.callSid,
+      });
+      this.saved = true;
+      this.log.info({ status, snapshot: snap }, '受付内容を保存しました');
+    } catch (err) {
+      // 保存に失敗しても通話は壊さない。
+      this.log.error({ err }, '受付内容の保存に失敗しました');
+    }
   }
 
   /**
@@ -402,6 +444,8 @@ export class RealtimeHandler implements MediaHandler {
     if (this.finished) return;
     this.finished = true;
     this.clearHangupTimers();
+    // 途中で切れた通話も、聞き取れた範囲は残す（何も無い通話は保存しない）。
+    if (!this.saved && this.state.hasAnything) this.persist('受付未完了');
     if (this.session) this.session.close(reason);
   }
 
