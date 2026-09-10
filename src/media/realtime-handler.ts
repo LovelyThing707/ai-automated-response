@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { config } from '../config.js';
 import { buildInstructions, resolveTentativeDate, formatJapaneseDate } from '../realtime/instructions.js';
 import { OpenAiSession } from '../realtime/openai-session.js';
+import { ReceptionState } from '../realtime/reception-state.js';
 import { payloadByteLength } from '../twilio/protocol.js';
 import type { MediaHandler, StreamContext } from './handler.js';
 
@@ -59,6 +60,11 @@ export class RealtimeHandler implements MediaHandler {
   private transcripts: string[] = [];
   private startedAtMs = 0;
 
+  /** 受付内容。ツール引数が唯一の正で、文字起こしは業務データとして使わない。 */
+  private readonly state = new ReceptionState();
+  private toolCalls = 0;
+  private toolRejections = 0;
+
   constructor(log: FastifyBaseLogger) {
     this.log = log;
   }
@@ -91,6 +97,7 @@ export class RealtimeHandler implements MediaHandler {
       },
       onIdleTimeout: () => this.log.info('無音タイムアウト（idle_timeout_ms）'),
       onTranscript: (text) => this.handleTranscript(text),
+      onToolCall: (call) => this.handleToolCall(call),
       onResponseDone: (info) => this.handleResponseDone(info),
       onFatal: (reason) => this.handleFatal(reason),
     });
@@ -219,6 +226,43 @@ export class RealtimeHandler implements MediaHandler {
     this.markQueue = [];
   }
 
+  /**
+   * ツール呼び出しを処理して結果を返す。
+   *
+   * 結果を返しただけではモデルは話し出さない。**必ず response.create を送る**。
+   * これを忘れるとツール呼び出しのたびに AI が黙り込む（よくあるバグ）。
+   */
+  private handleToolCall(call: { callId: string; name: string; rawArgs: string }): void {
+    if (!this.session) return;
+    // 中断時にも同じ call が再送されうるため冪等化する。
+    if (this.state.alreadyHandled(call.callId)) return;
+    this.state.markHandled(call.callId);
+    this.toolCalls += 1;
+
+    let output: unknown;
+    if (call.name === 'record_resident_info') {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(call.rawArgs) as Record<string, unknown>;
+      } catch {
+        this.log.warn({ rawArgs: call.rawArgs }, 'ツール引数を JSON として解釈できませんでした');
+      }
+      const result = this.state.record(args);
+      if (result.rejected.length > 0) this.toolRejections += 1;
+      output = result;
+      this.log.info(
+        { args, recorded: result.recorded, rejected: result.rejected, nextMissing: result.next_missing },
+        'record_resident_info',
+      );
+    } else {
+      output = { ok: false, error: `unknown tool: ${call.name}` };
+      this.log.warn({ name: call.name }, '未知のツールが呼ばれました');
+    }
+
+    this.session.sendToolOutput(call.callId, output);
+    this.session.createResponse();
+  }
+
   private handleTranscript(text: string): void {
     this.transcripts.push(text);
     this.log.info({ text }, 'AI 発話');
@@ -283,6 +327,11 @@ export class RealtimeHandler implements MediaHandler {
           maxMs: lat.length ? Math.max(...lat) : null,
         },
         aiUtterances: this.transcripts.length,
+        toolCalls: this.toolCalls,
+        toolRejections: this.toolRejections,
+        collected: this.state.values,
+        complete: this.state.isComplete,
+        nextMissing: this.state.nextMissing,
       },
       'Realtime 通話サマリ（納品物5の素材）',
     );

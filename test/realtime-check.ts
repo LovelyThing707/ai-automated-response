@@ -74,6 +74,8 @@ async function main(): Promise<void> {
     ['turn_detection = server_vad', /"turnDetection":"server_vad"/.test(joined)],
     [`silence_duration_ms = ${config.openai.vadSilenceMs}`, joined.includes(`"silenceMs":${config.openai.vadSilenceMs}`)],
     ['output_modalities = ["audio"]', /"outputModalities":\["audio"\]/.test(joined)],
+    ['tools が登録されている', /"toolCount":[1-9]/.test(joined)],
+    ['record_resident_info が登録されている', /record_resident_info/.test(joined)],
     ['スキーマ違反エラーが無い', !/OpenAI error/.test(joined)],
   ];
 

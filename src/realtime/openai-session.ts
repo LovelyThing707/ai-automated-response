@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
 import { config } from '../config.js';
+import { TOOLS } from './tools.js';
 
 /**
  * OpenAI Realtime API (GA) への WebSocket クライアント。
@@ -34,6 +35,8 @@ export interface OpenAiSessionEvents {
   onIdleTimeout(): void;
   /** AI の発話内容（ログ用）。 */
   onTranscript(text: string, itemId: string): void;
+  /** ツール呼び出しが確定した。状態機械の駆動点。中断・キャンセル時も発火する。 */
+  onToolCall(call: { callId: string; name: string; rawArgs: string }): void;
   /** 応答が終わった。status は completed / cancelled / failed / incomplete。 */
   onResponseDone(info: { responseId: string; status: string; reason?: string; usage?: unknown }): void;
   /** 復帰不能。通話を終わらせる。 */
@@ -185,6 +188,15 @@ export class OpenAiSession {
         this.events.onIdleTimeout();
         return;
 
+      // ツール引数の確定。delta は使わず done だけを見る。
+      case 'response.function_call_arguments.done': {
+        const callId = typeof event.call_id === 'string' ? event.call_id : '';
+        const name = typeof event.name === 'string' ? event.name : '';
+        const rawArgs = typeof event.arguments === 'string' ? event.arguments : '{}';
+        if (callId && name) this.events.onToolCall({ callId, name, rawArgs });
+        return;
+      }
+
       case 'response.output_audio_transcript.done':
       case 'response.audio_transcript.done': {
         const text = typeof event.transcript === 'string' ? event.transcript : '';
@@ -258,6 +270,11 @@ export class OpenAiSession {
       silenceMs: turn.silence_duration_ms,
       voice: output.voice,
       outputModalities: session.output_modalities,
+      // ツールが登録されたか。黙って落ちていると Stage 3 以降が何も記録しない。
+      toolCount: Array.isArray(session.tools) ? session.tools.length : 0,
+      toolNames: Array.isArray(session.tools)
+        ? session.tools.map((t) => (t as Record<string, unknown>).name)
+        : [],
     };
     this.log.info({ actual }, 'session.updated（実際に反映された設定）');
 
@@ -266,6 +283,9 @@ export class OpenAiSession {
         { actual },
         '音声フォーマットが audio/pcmu になっていません。24kHz PCM として解釈され無音または高速ノイズになります',
       );
+    }
+    if (actual.toolCount === 0) {
+      this.log.error({ actual }, 'tools が登録されていません（function calling が機能しません）');
     }
     if (actual.noiseReduction !== 'near_field') {
       // 既定は null（オフ）。古いパスで送ると「エラー無しで無効のまま」になる最悪の失敗モード。
@@ -305,6 +325,9 @@ export class OpenAiSession {
           },
         },
         instructions,
+        tools: TOOLS,
+        // session 全体に特定の関数を強制すると毎ターン呼ばれてしまうため auto にする。
+        tool_choice: 'auto',
         max_output_tokens: o.maxOutputTokens,
       },
     };
@@ -339,6 +362,25 @@ export class OpenAiSession {
       type: 'conversation.item.create',
       event_id: this.nextEventId('item'),
       item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] },
+    });
+  }
+
+  /**
+   * ツールの実行結果を返す。
+   *
+   * output は**文字列**でなければならない（オブジェクトは不可）。
+   * これは会話の末尾に追記されるだけなのでプロンプトキャッシュを壊さない。
+   * 状態を instructions に反映する代わりにここで伝えるのはそのため。
+   */
+  sendToolOutput(callId: string, output: unknown): boolean {
+    return this.send({
+      type: 'conversation.item.create',
+      event_id: this.nextEventId('tool'),
+      item: {
+        type: 'function_call_output',
+        call_id: callId,
+        output: typeof output === 'string' ? output : JSON.stringify(output),
+      },
     });
   }
 
