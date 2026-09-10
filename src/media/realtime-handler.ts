@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { config } from '../config.js';
-import { buildInstructions, resolveTentativeDate, formatJapaneseDate } from '../realtime/instructions.js';
+import { buildInstructions, resolveTentativeDate } from '../realtime/instructions.js';
+import { formatJa, jstToday } from '../realtime/dates.js';
 import { OpenAiSession } from '../realtime/openai-session.js';
 import { ReceptionState } from '../realtime/reception-state.js';
 import { payloadByteLength } from '../twilio/protocol.js';
@@ -65,6 +66,16 @@ export class RealtimeHandler implements MediaHandler {
   private toolCalls = 0;
   private toolRejections = 0;
 
+  // --- 終話（complete_reception）---
+  /** 受付完了。締めの挨拶を再生し終えたらソケットを閉じる。 */
+  private hangupArmed = false;
+  /** 締めの挨拶の音声が届き始めたか。 */
+  private hangupAudioSeen = false;
+  /** 締めの挨拶の生成が終わったか。 */
+  private hangupResponseDone = false;
+  /** mark が返らないまま止まった場合の保険。 */
+  private hangupTimer: NodeJS.Timeout | null = null;
+
   constructor(log: FastifyBaseLogger) {
     this.log = log;
   }
@@ -74,7 +85,7 @@ export class RealtimeHandler implements MediaHandler {
     this.startedAtMs = Date.now();
     this.log = this.log.child({ streamSid: ctx.streamSid, callSid: ctx.callSid });
 
-    const today = new Date();
+    const today = jstToday();
     const tentativeDate = resolveTentativeDate(today);
     const instructions = buildInstructions({ today, tentativeDate });
 
@@ -83,7 +94,7 @@ export class RealtimeHandler implements MediaHandler {
         model: config.openai.model,
         voice: config.openai.voice,
         vadSilenceMs: config.openai.vadSilenceMs,
-        tentativeDate: formatJapaneseDate(tentativeDate),
+        tentativeDate: formatJa(tentativeDate),
       },
       'Realtime ハンドラ開始',
     );
@@ -157,6 +168,8 @@ export class RealtimeHandler implements MediaHandler {
       }
     }
 
+    if (this.hangupArmed) this.hangupAudioSeen = true;
+
     this.itemGeneratedMs += payloadByteLength(payloadBase64) / MULAW_BYTES_PER_MS;
     this.ctx.send.media(payloadBase64);
 
@@ -207,7 +220,10 @@ export class RealtimeHandler implements MediaHandler {
     // 通常は先頭だが、clear 後のエコーで順序が乱れうるので indexOf を使う。
     const idx = this.markQueue.indexOf(name);
     if (idx >= 0) this.markQueue.splice(idx, 1);
-    if (this.markQueue.length === 0) this.resetPlaybackTracking();
+    if (this.markQueue.length === 0) {
+      this.resetPlaybackTracking();
+      this.maybeHangup();
+    }
   }
 
   /**
@@ -239,28 +255,75 @@ export class RealtimeHandler implements MediaHandler {
     this.state.markHandled(call.callId);
     this.toolCalls += 1;
 
-    let output: unknown;
-    if (call.name === 'record_resident_info') {
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(call.rawArgs) as Record<string, unknown>;
-      } catch {
-        this.log.warn({ rawArgs: call.rawArgs }, 'ツール引数を JSON として解釈できませんでした');
-      }
-      const result = this.state.record(args);
-      if (result.rejected.length > 0) this.toolRejections += 1;
-      output = result;
-      this.log.info(
-        { args, recorded: result.recorded, rejected: result.rejected, nextMissing: result.next_missing },
-        'record_resident_info',
-      );
-    } else {
-      output = { ok: false, error: `unknown tool: ${call.name}` };
-      this.log.warn({ name: call.name }, '未知のツールが呼ばれました');
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(call.rawArgs) as Record<string, unknown>;
+    } catch {
+      this.log.warn({ rawArgs: call.rawArgs }, 'ツール引数を JSON として解釈できませんでした');
     }
 
+    let output: unknown;
+    switch (call.name) {
+      case 'record_resident_info':
+        output = this.state.recordResidentInfo(args);
+        break;
+      case 'record_response':
+        output = this.state.recordResponse(args.type);
+        break;
+      case 'record_preferred_dates':
+        output = this.state.recordPreferredDates(args);
+        break;
+      case 'complete_reception': {
+        const result = this.state.complete();
+        output = result;
+        if (result.ok) this.armHangup();
+        break;
+      }
+      default:
+        output = { ok: false, error: 'unknown tool: ' + call.name };
+        this.log.warn({ name: call.name }, '未知のツールが呼ばれました');
+    }
+
+    const res = output as { rejected?: unknown[] } | undefined;
+    if (res && Array.isArray(res.rejected) && res.rejected.length > 0) this.toolRejections += 1;
+    this.log.info({ tool: call.name, args, output }, 'ツール呼び出し');
+
     this.session.sendToolOutput(call.callId, output);
+    // ツール結果を返しただけではモデルは話し出さない。必ず response.create を送る。
     this.session.createResponse();
+  }
+
+  /**
+   * 受付完了。ここで即座に閉じてはいけない。
+   * 締めの挨拶が Twilio の再生バッファに残ったままソケットを閉じると、
+   * 未再生分が破棄されて発信者は途中で切られる。
+   * 「生成が終わり、かつ送出済み音声がすべて鳴り終わった」時点で閉じる。
+   */
+  private armHangup(): void {
+    this.hangupArmed = true;
+    this.hangupAudioSeen = false;
+    this.hangupResponseDone = false;
+    this.log.info('受付完了。締めの挨拶の再生完了を待って終話します');
+    // mark が返らないまま止まった場合でも通話を残さない。
+    this.hangupTimer = setTimeout(() => {
+      this.log.warn('締めの挨拶の再生完了を待てませんでした。強制的に終話します');
+      this.finishCall();
+    }, 20000);
+  }
+
+  private maybeHangup(): void {
+    if (!this.hangupArmed || !this.hangupAudioSeen || !this.hangupResponseDone) return;
+    if (this.markQueue.length > 0) return;
+    this.finishCall();
+  }
+
+  /** ソケットを閉じる。通話を切るのではなく </Connect> 以降の TwiML へ進ませる。 */
+  private finishCall(): void {
+    if (this.hangupTimer) {
+      clearTimeout(this.hangupTimer);
+      this.hangupTimer = null;
+    }
+    if (this.ctx) this.ctx.send.close('reception-completed');
   }
 
   private handleTranscript(text: string): void {
@@ -275,6 +338,10 @@ export class RealtimeHandler implements MediaHandler {
     }
     // 保険: 再生済みならここでもリセットしておく。
     if (this.markQueue.length === 0) this.resetPlaybackTracking();
+    if (this.hangupArmed && info.status === 'completed') {
+      this.hangupResponseDone = true;
+      this.maybeHangup();
+    }
   }
 
   private handleFatal(reason: string): void {
@@ -299,6 +366,10 @@ export class RealtimeHandler implements MediaHandler {
   private finish(reason: string): void {
     if (this.finished) return;
     this.finished = true;
+    if (this.hangupTimer) {
+      clearTimeout(this.hangupTimer);
+      this.hangupTimer = null;
+    }
     if (this.session) this.session.close(reason);
   }
 
@@ -330,8 +401,8 @@ export class RealtimeHandler implements MediaHandler {
         toolCalls: this.toolCalls,
         toolRejections: this.toolRejections,
         collected: this.state.values,
-        complete: this.state.isComplete,
-        nextMissing: this.state.nextMissing,
+        completed: this.state.isComplete,
+        nextStep: this.state.nextStep,
       },
       'Realtime 通話サマリ（納品物5の素材）',
     );
