@@ -46,6 +46,28 @@ export const config = {
     markEvery: Math.max(0, int('ECHO_MARK_EVERY', 25)),
   },
 
+  openai: {
+    apiKey: str('OPENAI_API_KEY'),
+    /** URL のクエリ文字列のみで指定する。session.model には書かない（食い違うと無言で挙動が変わる）。 */
+    model: str('OPENAI_REALTIME_MODEL', 'gpt-realtime'),
+    voice: str('OPENAI_REALTIME_VOICE', 'marin'),
+    /** 接続がこの時間で確立しなければ通話を諦める。無音のまま待たせないため。 */
+    connectTimeoutMs: int('REALTIME_CONNECT_TIMEOUT_MS', 5000),
+    /** server_vad の無音判定。既定500msは日本語の思考ポーズには短い。 */
+    vadSilenceMs: int('VAD_SILENCE_MS', 800),
+    vadThreshold: Number(str('VAD_THRESHOLD', '0.5')),
+    vadIdleTimeoutMs: int('VAD_IDLE_TIMEOUT_MS', 10000),
+    /** 0.25〜1.5。数字の復唱を聞き取りやすくするなら 0.9 前後を試す。 */
+    outputSpeed: Number(str('OUTPUT_SPEED', '1.0')),
+    /** 入力の文字起こし。認識精度は上がらない（デバッグ記録用）。別課金。 */
+    transcription: str('ENABLE_INPUT_TRANSCRIPTION', 'false') === 'true',
+    transcriptionModel: str('TRANSCRIPTION_MODEL', 'gpt-4o-mini-transcribe'),
+    maxOutputTokens: int('MAX_OUTPUT_TOKENS', 2000),
+  },
+
+  /** 仮予約日。住人マスタとの照合はスコープ外のため、設定値を全通話で案内する。 */
+  tentativeDate: str('TENTATIVE_DATE'),
+
   logLevel: str('LOG_LEVEL', 'info'),
   logMediaFrames: Math.max(0, int('LOG_MEDIA_FRAMES', 20)),
 } as const;
@@ -65,8 +87,14 @@ export function validateConfig(): { fatal: string[]; warnings: string[] } {
         'すべての着信が 403 で拒否されます。トークンを設定するか log/off にしてください。',
     );
   }
-  if (config.handler === 'realtime') {
-    fatal.push('MEDIA_HANDLER=realtime は Stage 2 で実装します。現時点では echo のみ利用可能です。');
+  if (config.handler === 'realtime' && !config.openai.apiKey) {
+    fatal.push('MEDIA_HANDLER=realtime ですが OPENAI_API_KEY が未設定です。');
+  }
+  if (config.handler === 'realtime' && !config.tentativeDate) {
+    warnings.push('TENTATIVE_DATE が未設定です。本日から7日後を仮予約日として案内します。');
+  }
+  if (config.openai.outputSpeed < 0.25 || config.openai.outputSpeed > 1.5) {
+    fatal.push(`OUTPUT_SPEED は 0.25〜1.5 の範囲です (現在値: ${config.openai.outputSpeed})`);
   }
   if (!config.twilio.authToken && config.twilio.signatureMode === 'log') {
     warnings.push(

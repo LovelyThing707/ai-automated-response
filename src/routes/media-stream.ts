@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { config } from '../config.js';
 import { EchoHandler } from '../media/echo-handler.js';
+import { RealtimeHandler } from '../media/realtime-handler.js';
 import type { MediaHandler, StreamContext } from '../media/handler.js';
 import {
   TRACK_INBOUND,
@@ -18,8 +19,7 @@ function createHandler(log: FastifyInstance['log']): MediaHandler {
     case 'echo':
       return new EchoHandler(log);
     case 'realtime':
-      // config.ts の validateConfig で起動時に弾いているため、ここには来ない。
-      throw new Error('MEDIA_HANDLER=realtime は Stage 2 で実装します');
+      return new RealtimeHandler(log);
   }
 }
 
