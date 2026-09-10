@@ -1,5 +1,5 @@
 import { BUILDINGS } from './instructions.js';
-import { checkPreferredDate, jstToday, speakJa, type CalendarDate } from './dates.js';
+import { checkPreferredDate, jstToday, speakJa, toIso, type CalendarDate } from './dates.js';
 
 /**
  * 1通話ぶんの受付状態。プロセス内メモリにのみ保持する。
@@ -72,7 +72,11 @@ export class ReceptionState {
   private readonly handledCallIds = new Set<string>();
   private readonly failures: Record<string, number> = {};
 
-  constructor(private readonly today: CalendarDate = jstToday()) {}
+  constructor(
+    private readonly today: CalendarDate = jstToday(),
+    /** 仮予約日。これと同じ日を希望日にするのは矛盾なので拒否する。 */
+    private readonly tentative: CalendarDate | null = null,
+  ) {}
 
   // ---- 参照 ----
 
@@ -212,6 +216,14 @@ export class ReceptionState {
       if (!check.ok) {
         this.failures[field] = (this.failures[field] ?? 0) + 1;
         rejected.push({ field, reason: check.reason });
+        return;
+      }
+      // 変更を希望しているのに仮予約日と同じ日を挙げるのは矛盾している
+      if (this.tentative && check.iso === toIso(this.tentative)) {
+        rejected.push({
+          field,
+          reason: '仮予約日と同じ日付です。変更をご希望とのことなので、別の日をご確認ください',
+        });
         return;
       }
       // 同じ日を重複して希望として登録させない

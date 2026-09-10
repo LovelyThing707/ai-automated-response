@@ -62,7 +62,7 @@ export class RealtimeHandler implements MediaHandler {
   private startedAtMs = 0;
 
   /** 受付内容。ツール引数が唯一の正で、文字起こしは業務データとして使わない。 */
-  private readonly state = new ReceptionState();
+  private state = new ReceptionState();
   private toolCalls = 0;
   private toolRejections = 0;
 
@@ -73,8 +73,10 @@ export class RealtimeHandler implements MediaHandler {
   private hangupAudioSeen = false;
   /** 締めの挨拶の生成が終わったか。 */
   private hangupResponseDone = false;
-  /** mark が返らないまま止まった場合の保険。 */
+  /** 再生の進行を見張るウォッチドッグ。mark が返るたびに延長する。 */
   private hangupTimer: NodeJS.Timeout | null = null;
+  /** 何があっても通話を残さないための上限。 */
+  private hangupDeadline: NodeJS.Timeout | null = null;
 
   constructor(log: FastifyBaseLogger) {
     this.log = log;
@@ -88,6 +90,7 @@ export class RealtimeHandler implements MediaHandler {
     const today = jstToday();
     const tentativeDate = resolveTentativeDate(today);
     const instructions = buildInstructions({ today, tentativeDate });
+    this.state = new ReceptionState(today, tentativeDate);
 
     this.log.info(
       {
@@ -106,7 +109,13 @@ export class RealtimeHandler implements MediaHandler {
       onSpeechStopped: () => {
         this.speechStoppedAtMs = Date.now();
       },
-      onIdleTimeout: () => this.log.info('無音タイムアウト（idle_timeout_ms）'),
+      onIdleTimeout: () => {
+        this.log.info('無音タイムアウト（idle_timeout_ms）');
+        if (this.hangupArmed) {
+          this.log.info('受付完了後の無音のため終話します');
+          this.finishCall();
+        }
+      },
       onTranscript: (text) => this.handleTranscript(text),
       onToolCall: (call) => this.handleToolCall(call),
       onResponseDone: (info) => this.handleResponseDone(info),
@@ -220,6 +229,8 @@ export class RealtimeHandler implements MediaHandler {
     // 通常は先頭だが、clear 後のエコーで順序が乱れうるので indexOf を使う。
     const idx = this.markQueue.indexOf(name);
     if (idx >= 0) this.markQueue.splice(idx, 1);
+    // まだ再生が進んでいる証拠。終話判定を先送りする。
+    if (this.hangupArmed) this.bumpHangupWatchdog(5000);
     if (this.markQueue.length === 0) {
       this.resetPlaybackTracking();
       this.maybeHangup();
@@ -304,11 +315,27 @@ export class RealtimeHandler implements MediaHandler {
     this.hangupAudioSeen = false;
     this.hangupResponseDone = false;
     this.log.info('受付完了。締めの挨拶の再生完了を待って終話します');
-    // mark が返らないまま止まった場合でも通話を残さない。
-    this.hangupTimer = setTimeout(() => {
-      this.log.warn('締めの挨拶の再生完了を待てませんでした。強制的に終話します');
+
+    // 固定タイマーでは足りない。OpenAI は実時間より速く音声を生成するため、
+    // 復唱が長いと Twilio の再生待ち行列が数十秒ぶんたまることがある。
+    // 実測で mark 48個（約9.6秒ぶん）を残したまま固定20秒で強制切断し、
+    // 発信者の耳では締めの挨拶が途中で切れていた。
+    // mark は再生が進むかぎり200msごとに返ってくるので、
+    // 「mark が一定時間返ってこない＝再生が終わった」を終了条件にする。
+    this.bumpHangupWatchdog(8000);
+    this.hangupDeadline = setTimeout(() => {
+      this.log.warn('終話の上限時間に達しました。強制的に終話します');
       this.finishCall();
-    }, 20000);
+    }, 90000);
+  }
+
+  private bumpHangupWatchdog(ms: number): void {
+    if (!this.hangupArmed) return;
+    if (this.hangupTimer) clearTimeout(this.hangupTimer);
+    this.hangupTimer = setTimeout(() => {
+      this.log.info('再生の進行が止まりました。終話します');
+      this.finishCall();
+    }, ms);
   }
 
   private maybeHangup(): void {
@@ -319,11 +346,19 @@ export class RealtimeHandler implements MediaHandler {
 
   /** ソケットを閉じる。通話を切るのではなく </Connect> 以降の TwiML へ進ませる。 */
   private finishCall(): void {
+    this.clearHangupTimers();
+    if (this.ctx) this.ctx.send.close('reception-completed');
+  }
+
+  private clearHangupTimers(): void {
     if (this.hangupTimer) {
       clearTimeout(this.hangupTimer);
       this.hangupTimer = null;
     }
-    if (this.ctx) this.ctx.send.close('reception-completed');
+    if (this.hangupDeadline) {
+      clearTimeout(this.hangupDeadline);
+      this.hangupDeadline = null;
+    }
   }
 
   private handleTranscript(text: string): void {
@@ -366,10 +401,7 @@ export class RealtimeHandler implements MediaHandler {
   private finish(reason: string): void {
     if (this.finished) return;
     this.finished = true;
-    if (this.hangupTimer) {
-      clearTimeout(this.hangupTimer);
-      this.hangupTimer = null;
-    }
+    this.clearHangupTimers();
     if (this.session) this.session.close(reason);
   }
 

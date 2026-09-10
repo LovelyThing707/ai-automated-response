@@ -84,7 +84,7 @@ console.log('\n--- 状態機械: 確定パターン ---');
 
 console.log('\n--- 状態機械: 変更希望パターン ---');
 {
-  const s = new ReceptionState(today);
+  const s = new ReceptionState(today, d(2026, 9, 24));
   check('4項目前に回答区分を拒否', s.recordResponse('change').ok === false);
 
   s.recordResidentInfo({ name_kana: 'すずき はなこ' });
@@ -95,6 +95,11 @@ console.log('\n--- 状態機械: 変更希望パターン ---');
   check('change なら第一希望を求める', s.nextStep.kind === 'preferred_date' && s.nextStep.index === 1);
 
   check('希望日が揃う前の完了を拒否', s.complete().ok === false);
+
+  check(
+    '仮予約日と同じ日を希望日として拒否',
+    s.recordPreferredDates({ date1: '2026-09-24' }).ok === false,
+  );
 
   const p1 = s.recordPreferredDates({ date1: '2026-10-01' });
   check('第一希望を受理', p1.ok && p1.next === 'preferred_date_2', p1.next);
