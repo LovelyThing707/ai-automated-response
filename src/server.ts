@@ -6,6 +6,7 @@ import { config, validateConfig } from './config.js';
 import { registerMediaStreamRoute } from './routes/media-stream.js';
 import { registerCallStatusRoute, registerStreamStatusRoute } from './routes/stream-status.js';
 import { registerVoiceRoute } from './routes/voice.js';
+import { registerAdminRoutes } from './routes/admin.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -33,6 +34,7 @@ export async function buildServer() {
   registerStreamStatusRoute(app);
   registerCallStatusRoute(app);
   registerMediaStreamRoute(app);
+  registerAdminRoutes(app);
 
   return app;
 }
