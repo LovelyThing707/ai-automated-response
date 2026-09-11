@@ -103,8 +103,8 @@ export function validateConfig(): { fatal: string[]; warnings: string[] } {
   }
   if (!config.twilio.authToken && config.twilio.signatureMode === 'log') {
     warnings.push(
-      'TWILIO_AUTH_TOKEN が未設定のため署名検証をスキップします（Stage 1 では想定内）。' +
-        'トークン入手後に .env へ設定し、動作確認後 TWILIO_SIGNATURE_MODE=enforce にしてください。',
+      'TWILIO_AUTH_TOKEN が未設定のため署名検証をスキップします。' +
+        'トークンを .env へ設定し、動作確認後 TWILIO_SIGNATURE_MODE=enforce にしてください。',
     );
   }
   if (config.echo.batchFrames > 1) {

@@ -66,7 +66,7 @@ async function main(): Promise<void> {
 
   await app.listen({ port: config.port, host: config.host });
 
-  const hostHint = config.publicHostname || '<ngrokのホスト名>';
+  const hostHint = config.publicHostname || '<公開ホスト名>';
   app.log.info(
     {
       voiceWebhook: `https://${hostHint}/voice`,
