@@ -5,6 +5,7 @@ import { formatJa, jstToday, type CalendarDate } from '../realtime/dates.js';
 import { OpenAiSession } from '../realtime/openai-session.js';
 import { ReceptionState } from '../realtime/reception-state.js';
 import { saveReception } from '../db/index.js';
+import { CallRecorder } from './recorder.js';
 import { toIso } from '../realtime/dates.js';
 import { payloadByteLength } from '../twilio/protocol.js';
 import type { MediaHandler, StreamContext } from './handler.js';
@@ -76,6 +77,8 @@ export class RealtimeHandler implements MediaHandler {
   /** 保存済みか。complete と通話終了の両方から呼ばれるため。 */
   private saved = false;
   private tentativeDate: CalendarDate | null = null;
+  /** 録音（RECORD_CALLS=true のときだけ作る）。 */
+  private recorder: CallRecorder | null = null;
 
   // --- 終話（complete_reception）---
   /** 受付完了。締めの挨拶を再生し終えたらソケットを閉じる。 */
@@ -103,6 +106,7 @@ export class RealtimeHandler implements MediaHandler {
     const instructions = buildInstructions({ today, tentativeDate });
     this.state = new ReceptionState(today, tentativeDate);
     this.tentativeDate = tentativeDate;
+    if (config.recordCalls) this.recorder = new CallRecorder();
 
     this.log.info(
       {
@@ -163,6 +167,7 @@ export class RealtimeHandler implements MediaHandler {
   onMedia(payloadBase64: string, timestampMs: number): void {
     this.latestMediaTimestampMs = timestampMs;
     this.inboundFrames += 1;
+    if (this.recorder) this.recorder.writeCaller(payloadBase64, timestampMs);
     if (!this.session || !this.session.isOpen) {
       this.droppedInbound += 1;
       return;
@@ -188,11 +193,13 @@ export class RealtimeHandler implements MediaHandler {
         this.responseLatencies.push(Date.now() - this.speechStoppedAtMs);
         this.speechStoppedAtMs = null;
       }
+      if (this.recorder) this.recorder.startAiItem(this.latestMediaTimestampMs);
     }
 
     if (this.hangupArmed) this.hangupAudioSeen = true;
 
     this.itemGeneratedMs += payloadByteLength(payloadBase64) / MULAW_BYTES_PER_MS;
+    if (this.recorder) this.recorder.writeAi(payloadBase64);
     this.ctx.send.media(payloadBase64);
 
     while (this.itemGeneratedMs - this.markedUpToMs >= MARK_INTERVAL_MS) {
@@ -236,6 +243,8 @@ export class RealtimeHandler implements MediaHandler {
     this.ctx.send.clear(); // (1) 発信者に聞こえている音を止める
     this.session.truncate(this.currentItemId, audioEndMs); // (2) モデルの履歴を実際に聞こえた位置で切る
     this.resetPlaybackTracking(); // (3) 局所状態のリセット
+    // 発信者に届かなかった音声は録音にも残さない（通話の再現にならないため）
+    if (this.recorder) this.recorder.truncateAiTo(audioEndMs);
     this.bargeInCount += 1;
 
     this.log.info({ audioEndMs, elapsedMs: Math.round(elapsedMs) }, 'barge-in');
@@ -455,6 +464,7 @@ export class RealtimeHandler implements MediaHandler {
 
   onClose(code: number, reason: string): void {
     this.finish('ws-close');
+    this.saveRecording();
     this.logSummary(code, reason);
   }
 
@@ -465,6 +475,23 @@ export class RealtimeHandler implements MediaHandler {
     // 途中で切れた通話も、聞き取れた範囲は残す（何も無い通話は保存しない）。
     if (!this.saved && this.state.hasAnything) this.persist('受付未完了');
     if (this.session) this.session.close(reason);
+  }
+
+  /** 録音を書き出す。失敗しても通話やサマリには影響させない。 */
+  private saveRecording(): void {
+    if (!this.recorder || !this.ctx || this.recorder.isEmpty) return;
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = this.recorder.save(
+        config.recordingsDir,
+        `${stamp}_${this.ctx.callSid}.wav`,
+      );
+      this.log.info({ file, ...this.recorder.stats }, '通話を録音しました');
+    } catch (err) {
+      this.log.error({ err }, '録音の保存に失敗しました');
+    } finally {
+      this.recorder = null;
+    }
   }
 
   private logSummary(code: number, reason: string): void {

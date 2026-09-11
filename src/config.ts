@@ -73,6 +73,14 @@ export const config = {
 
   databasePath: str('DATABASE_PATH', './data/demo.sqlite'),
 
+  /**
+   * 通話の録音。動作確認・デモ提示用で既定は無効。
+   * 有効にすると通話内容が音声ファイルとして残るため、
+   * 保存先と破棄の方針を決めたうえで使うこと。
+   */
+  recordCalls: str('RECORD_CALLS', 'false') === 'true',
+  recordingsDir: str('RECORDINGS_DIR', './recordings'),
+
   logLevel: str('LOG_LEVEL', 'info'),
   logMediaFrames: Math.max(0, int('LOG_MEDIA_FRAMES', 20)),
 } as const;

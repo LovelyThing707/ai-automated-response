@@ -15,7 +15,8 @@
     "test:flow": "tsx test/flow-check.ts",
     "test:db": "tsx test/db-check.ts",
     "test:realtime": "tsx test/realtime-check.ts",
-    "seed": "tsx test/seed-demo.ts"
+    "seed": "tsx test/seed-demo.ts",
+    "test:recorder": "tsx test/recorder-check.ts"
   },
   "dependencies": {
     "@fastify/formbody": "^9.0.0",

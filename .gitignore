@@ -12,6 +12,9 @@ APIキー/
 APIキー.zip
 image.png
 
+# 通話の録音（音声が入るため絶対にコミットしない）
+recordings/
+
 # デモデータ
 data/*.sqlite
 data/*.sqlite-journal
