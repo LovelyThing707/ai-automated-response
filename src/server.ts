@@ -7,6 +7,7 @@ import { registerMediaStreamRoute } from './routes/media-stream.js';
 import { registerCallStatusRoute, registerStreamStatusRoute } from './routes/stream-status.js';
 import { registerVoiceRoute } from './routes/voice.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { closeDb } from './db/index.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -56,6 +57,8 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, 'シャットダウンします');
     await app.close();
+    // WAL を畳んでから終わる（畳まないと .sqlite 単体に直近の受付が入らない）
+    closeDb();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
@@ -72,7 +75,7 @@ async function main(): Promise<void> {
       handler: config.handler,
       echoBatchFrames: config.echo.batchFrames,
     },
-    'Stage 1 サーバー起動完了',
+    'サーバー起動完了',
   );
 }
 

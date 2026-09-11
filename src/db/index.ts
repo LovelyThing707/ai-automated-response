@@ -146,6 +146,23 @@ export function clearAllReceptions(): number {
   return info.changes;
 }
 
+/**
+ * DB を閉じる。終了時に必ず呼ぶこと。
+ *
+ * WAL モードでは書き込みが -wal ファイルに残る。checkpoint せずに
+ * .sqlite 単体をコピーすると、直近の受付が入っていない（空に見える）状態になる。
+ * 納品ZIPやバックアップで実害が出るため、終了時に確実に畳む。
+ */
+export function closeDb(): void {
+  if (!db) return;
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.close();
+  } finally {
+    db = null;
+  }
+}
+
 /** 一覧の絞り込み用に、実際に登録されている値だけを返す。 */
 export function distinctBuildings(): string[] {
   const rows = getDb()

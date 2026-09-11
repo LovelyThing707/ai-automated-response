@@ -15,6 +15,9 @@ image.png
 # デモデータ
 data/*.sqlite
 data/*.sqlite-journal
+# WAL モードは -wal / -shm も作る。これらにも受付内容が入るため必ず除外する
+data/*.sqlite-wal
+data/*.sqlite-shm
 
 # ログ・OS
 *.log
