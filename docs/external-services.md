@@ -55,9 +55,7 @@ TwiML で動的に設定するため、Console 側での設定は不要です。
     <Stream url="wss://<公開ホスト名>/media-stream"
             name="reception"
             statusCallback="https://<公開ホスト名>/stream-status"
-            statusCallbackMethod="POST">
-      <Parameter name="stage" value="1" />
-    </Stream>
+            statusCallbackMethod="POST" />
   </Connect>
   <Say language="ja-JP">ありがとうございました。失礼いたします。</Say>
 </Response>
@@ -98,7 +96,8 @@ TwiML で動的に設定するため、Console 側での設定は不要です。
 |---|---|
 | 接続先 | `wss://api.openai.com/v1/realtime?model=<モデル名>` |
 | モデル | `.env` の `OPENAI_REALTIME_MODEL`（既定 `gpt-realtime`） |
-| 動作確認済みモデル | `gpt-realtime` / `gpt-realtime-2.1` / `gpt-realtime-mini`（いずれも `audio/pcmu` 対応を確認済み） |
+| 実機通話で確認したモデル | `gpt-realtime` |
+| session 設定のみ確認したモデル | `gpt-realtime-2.1` / `gpt-realtime-mini`（`audio/pcmu` と `near_field` が `session.updated` に反映されることは確認済み。**実機通話では未検証**） |
 | 使用不可 | `gpt-audio` / `gpt-audio-mini` は Chat Completions 用で Realtime では動作しません |
 
 ### 2-3. セッション設定（GAスキーマ）

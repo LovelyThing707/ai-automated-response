@@ -159,14 +159,15 @@ http://localhost:3000/admin
 # 型チェック
 npm run typecheck
 
-# 日付ユーティリティと受付状態機械（43項目）
-npx tsx test/flow-check.ts
+# 日付ユーティリティと受付状態機械（47項目）
+npm run test:flow
 
 # DB層: 保存・上書き・絞り込み・詳細・一括クリア（22項目）
-$env:DATABASE_PATH="./data/_test.sqlite"; npx tsx test/db-check.ts
+# 専用のテストDBを使うため、デモデータは影響を受けません
+npm run test:db
 
 # OpenAI のセッション設定とツール登録（10項目・音声は流さないためほぼ無課金）
-npx tsx test/realtime-check.ts
+npm run test:realtime
 
 # Twilio Media Streams のプロトコル（サーバー起動中に別ターミナルで・22項目）
 node test/protocol-sim.mjs
@@ -175,7 +176,7 @@ node test/protocol-sim.mjs
 管理画面を実データなしで確認したい場合は、架空データを投入できます。
 
 ```powershell
-npx tsx test/seed-demo.ts
+npm run seed
 ```
 
 ### 7-2. 実機通話でしか分からないこと
@@ -284,3 +285,38 @@ test/                            実機通話なしの検証スクリプト
 （住人マスタとの照合が対象外のため）。
 
 既知の制約は `docs/test-results.md` にまとめています。
+
+---
+
+## 12. 納品物とファイルの対応
+
+| 納品物 | 該当ファイル |
+|---|---|
+| 1. ソースコード一式 | `src/` `test/` `package.json` `tsconfig.json` `.env.example` |
+| 2. 環境設定・起動方法の手順書 | 本 README |
+| 3. 外部サービス設定内容一覧 | `docs/external-services.md` |
+| 4. 使用ライブラリ・OSSライセンス情報一覧 | `docs/licenses.md` |
+| 5. テスト結果および既知の制約事項 | `docs/test-results.md` |
+
+### 納品ZIP の作り方
+
+```powershell
+# 1. ビルド成果物と実データを消してから固める
+Remove-Item -Recurse -Force dist, node_modules -ErrorAction SilentlyContinue
+Remove-Item data/*.sqlite* -ErrorAction SilentlyContinue
+
+# 2. 除外リストを守って圧縮（git 管理下のファイルだけを固めるのが確実）
+git archive --format=zip --output=../ai-automated-response.zip HEAD
+```
+
+**ZIP に含めてはいけないもの**:
+
+| 対象 | 理由 |
+|---|---|
+| `.env` | 認証情報。**契約上の義務として絶対に含めない** |
+| `node_modules/` | `better-sqlite3` にプラットフォーム別のバイナリが含まれ、別環境で動かない |
+| `dist/` | ビルド成果物。`npm run build` で再生成できる |
+| `data/*.sqlite*` | 実通話の受付内容と Call SID が入る |
+
+`git archive` を使えば `.gitignore` の除外がそのまま効くため、上記は自動的に除かれます。
+受領側は ZIP を展開して `npm install` → `.env.example` を `.env` にコピーして値を埋める、で動きます。
