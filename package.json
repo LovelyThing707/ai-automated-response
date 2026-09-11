@@ -5,7 +5,7 @@
   "description": "AI電話自動応答デモ — マンション工事日程受付",
   "type": "module",
   "engines": {
-    "node": ">=20.11"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -20,14 +20,12 @@
   "dependencies": {
     "@fastify/formbody": "^9.0.0",
     "@fastify/websocket": "^11.3.0",
-    "better-sqlite3": "^13.0.3",
     "dotenv": "^17.4.2",
     "fastify": "^5.12.3",
     "twilio": "^6.1.0",
     "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.5.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.23.13",

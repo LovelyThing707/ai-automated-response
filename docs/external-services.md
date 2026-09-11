@@ -178,5 +178,5 @@ Twilio は `wss://`（TLS）でしか接続しないため、ローカル開発�
 | `REALTIME_CONNECT_TIMEOUT_MS` | | OpenAI 接続のタイムアウト |
 | `ENABLE_INPUT_TRANSCRIPTION` / `TRANSCRIPTION_MODEL` | | 入力の文字起こし（デバッグ用・別課金） |
 | `TENTATIVE_DATE` | | 全通話で案内する仮予約日（YYYY-MM-DD） |
-| `DATABASE_PATH` | | SQLite ファイルの場所 |
+| `DATABASE_PATH` | | SQLite ファイルの場所（Node 組み込みの `node:sqlite` を使用） |
 | `LOG_LEVEL` / `LOG_MEDIA_FRAMES` / `ECHO_BATCH_FRAMES` / `ECHO_MARK_EVERY` | | ログと疎通確認用の調整 |

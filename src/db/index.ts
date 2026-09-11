@@ -1,10 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { config } from '../config.js';
 
 /**
  * デモ用の受付データ保存。
+ *
+ * Node 組み込みの `node:sqlite` を使う。better-sqlite3 でも機能は足りるが、
+ * あちらは binding.gyp を持つためインストール時に npm が node-gyp rebuild を
+ * 自動実行し、Visual Studio が入っていない環境では **npm install 自体が失敗する**
+ * （実際に納品ZIPからのクリーンインストールで node_modules が空になることを確認）。
+ * 「クライアント環境で動かせること」が納品要件なので、ネイティブ依存を持たない
+ * 組み込みモジュールを選ぶ。
  *
  * スキーマは CLAUDE.md の「データモデル」節をそのまま写したもの。
  * 日付は YYYY-MM-DD の文字列で保持する（SQLite に日付型は無く、
@@ -57,15 +64,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_receptions_call_sid ON receptions(call_sid
 CREATE INDEX IF NOT EXISTS idx_receptions_received_at ON receptions(received_at DESC);
 `;
 
-let db: Database.Database | null = null;
+let db: DatabaseSync | null = null;
 
-export function getDb(): Database.Database {
+export function getDb(): DatabaseSync {
   if (db) return db;
   const file = config.databasePath;
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-  db = new Database(file);
+  db = new DatabaseSync(file);
   // 通話中の書き込みが読み取り（管理画面）でブロックされないように。
-  db.pragma('journal_mode = WAL');
+  db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
   return db;
 }
@@ -102,7 +109,8 @@ export function saveReception(row: NewReception): number {
       preferred_date_3 = excluded.preferred_date_3,
       status           = excluded.status
   `);
-  const info = stmt.run(row);
+  // node:sqlite の lastInsertRowid は bigint
+  const info = stmt.run(row as unknown as Record<string, string | null>);
   return Number(info.lastInsertRowid);
 }
 
@@ -132,18 +140,20 @@ export function listReceptions(filter: ListFilter = {}): ReceptionRow[] {
     'SELECT * FROM receptions' +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
     ' ORDER BY received_at DESC, id DESC';
-  return getDb().prepare(sql).all(params) as ReceptionRow[];
+  const stmt = getDb().prepare(sql);
+  const rows = Object.keys(params).length > 0 ? stmt.all(params) : stmt.all();
+  return rows as unknown as ReceptionRow[];
 }
 
 export function getReception(id: number): ReceptionRow | null {
   const row = getDb().prepare('SELECT * FROM receptions WHERE id = ?').get(id);
-  return (row as ReceptionRow | undefined) ?? null;
+  return (row as unknown as ReceptionRow | undefined) ?? null;
 }
 
 /** デモデータ一括クリア。管理画面から確認ダイアログ付きで呼ぶ。 */
 export function clearAllReceptions(): number {
   const info = getDb().prepare('DELETE FROM receptions').run();
-  return info.changes;
+  return Number(info.changes);
 }
 
 /**
@@ -156,7 +166,7 @@ export function clearAllReceptions(): number {
 export function closeDb(): void {
   if (!db) return;
   try {
-    db.pragma('wal_checkpoint(TRUNCATE)');
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     db.close();
   } finally {
     db = null;
@@ -167,6 +177,6 @@ export function closeDb(): void {
 export function distinctBuildings(): string[] {
   const rows = getDb()
     .prepare('SELECT DISTINCT building FROM receptions WHERE building IS NOT NULL ORDER BY building')
-    .all() as Array<{ building: string }>;
+    .all() as unknown as Array<{ building: string }>;
   return rows.map((r) => r.building);
 }

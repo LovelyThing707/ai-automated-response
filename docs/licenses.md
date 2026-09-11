@@ -1,7 +1,7 @@
 # 使用ライブラリ・OSSライセンス情報一覧
 
 > 納品物4。`npm install` によって導入されるパッケージのライセンス情報。
-> 調査日: 2026-09-11 / 対象: `package.json` および `node_modules` の実測値
+> 調査日: 2026-09-11（node:sqlite 移行後に再取得）/ 対象: `package.json` および `node_modules` の実測値
 
 ---
 
@@ -16,7 +16,6 @@
 | `@fastify/formbody` | 9.0.0 | MIT | Twilio Webhook の `application/x-www-form-urlencoded` 解析 | https://github.com/fastify/fastify-formbody |
 | `ws` | 8.21.3 | MIT | OpenAI Realtime API への WebSocket クライアント | https://github.com/websockets/ws |
 | `twilio` | 6.1.0 | MIT | `X-Twilio-Signature` の検証のみに使用 | https://github.com/twilio/twilio-node |
-| `better-sqlite3` | 13.0.3 | MIT | 受付内容の保存（SQLite） | https://github.com/WiseLibs/better-sqlite3 |
 | `dotenv` | 17.4.2 | BSD-2-Clause | `.env` の読み込み | https://github.com/motdotla/dotenv |
 
 ## 2. 直接依存（開発時のみ）
@@ -29,15 +28,18 @@
 | `tsx` | 4.23.13 | MIT | 開発時の TypeScript 直接実行 | https://github.com/privatenumber/tsx |
 | `@types/node` | 26.5.0 | MIT | Node.js の型定義 | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | `@types/ws` | 8.18.1 | MIT | `ws` の型定義 | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| `@types/better-sqlite3` | 9.6.0 | MIT | `better-sqlite3` の型定義 | https://github.com/DefinitelyTyped/DefinitelyTyped |
+
+> SQLite は Node.js 24 に組み込まれている `node:sqlite` を使用しており、
+> 外部パッケージへの依存はありません。ネイティブモジュールを持たないため、
+> インストール時にコンパイラを必要としません。
 
 ## 3. 推移的依存を含めた全体
 
-`node_modules` 配下の全パッケージ **127件** のライセンス内訳。
+`node_modules` 配下の全パッケージ **124件** のライセンス内訳。
 
 | ライセンス | 件数 |
 |---|---|
-| MIT | 108 |
+| MIT | 105 |
 | BSD-3-Clause | 7 |
 | ISC | 7 |
 | Apache-2.0 | 2 |
