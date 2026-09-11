@@ -170,7 +170,9 @@ npm run test:db
 # OpenAI のセッション設定とツール登録（10項目・音声は流さないためほぼ無課金）
 npm run test:realtime
 
-# Twilio Media Streams のプロトコル（サーバー起動中に別ターミナルで・22項目）
+# Twilio Media Streams のプロトコル（サーバー起動中に別ターミナルで）
+# realtime モードでは19項目、MEDIA_HANDLER=echo で起動していれば
+# 音声のエコー検証も加わり22項目になります
 node test/protocol-sim.mjs
 ```
 

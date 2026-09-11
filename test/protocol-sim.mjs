@@ -3,7 +3,8 @@
 import { WebSocket } from 'ws';
 
 // SIM_BASE でトンネル越しの公開URLも検証できる（Twilio が実際に通る経路）
-const PORT = process.env.SIM_PORT || '3100';
+// 既定は .env の PORT 既定値と揃える（README は『サーバー起動中に別ターミナルで』と案内するため）
+const PORT = process.env.SIM_PORT || process.env.PORT || '3000';
 const BASE = process.env.SIM_BASE || `http://127.0.0.1:${PORT}`;
 const WS_BASE = BASE.replace(/^http/, 'ws');
 const results = [];
@@ -27,6 +28,18 @@ async function main() {
   const health = await fetch(`${BASE}/health`);
   ok('GET /health が 200', health.status === 200, `status=${health.status}`);
 
+  // エコー固有の検証は MEDIA_HANDLER=echo のときだけ意味がある。
+  // realtime モードでは AI が応答するため、音声は返ってくるが「入力と同一」にはならない。
+  const handler = health.ok ? (await health.clone().json()).handler : 'unknown';
+  const isEcho = handler === 'echo';
+  if (!isEcho) {
+    console.log('');
+    console.log(`  [注記] サーバーは MEDIA_HANDLER=${handler} で動作中です。`);
+    console.log('         音声のエコー検証はスキップします（プロトコルの検証のみ実施）。');
+    console.log('         エコーも検証するには .env で MEDIA_HANDLER=echo にして再起動してください。');
+    console.log('');
+  }
+
   const voice = await fetch(`${BASE}/voice`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -40,7 +53,13 @@ async function main() {
   ok('url が絶対 wss://', /url="wss:\/\/[^"]+"/.test(twiml));
   ok('url にクエリ文字列が無い (31920回避)', !/url="wss:\/\/[^"]*\?/.test(twiml));
   ok('track 属性を書いていない (31941回避)', !/<Stream[^>]*\strack=/.test(twiml));
-  ok('<Say> が <Connect> より前', twiml.indexOf('<Say') < twiml.indexOf('<Connect>'));
+  if (isEcho) {
+    ok('<Say> が <Connect> より前', twiml.indexOf('<Say') < twiml.indexOf('<Connect>'));
+  } else {
+    // realtime では冒頭の <Say> を出さない。挨拶は AI が行うため、
+    // ここで喋ると挨拶が二重になる（<Say> は outbound トラックで AI には聞こえない）。
+    ok('realtime では冒頭に <Say> を置かない', twiml.indexOf('<Connect>') < twiml.indexOf('<Say'));
+  }
   ok('</Connect> の後にも <Say> がある', twiml.lastIndexOf('<Say') > twiml.indexOf('</Connect>'));
   ok('Stream に name が付いている', /<Stream[^>]*\sname="[^"]+"/.test(twiml));
   ok('statusCallback が絶対URL', /statusCallback="https:\/\//.test(twiml));
@@ -119,7 +138,7 @@ async function main() {
   const marks = received.filter((m) => m.event === 'mark');
 
   ok('start より前に送信しない', beforeStart === 0, `${beforeStart}件`);
-  ok('media を送り返した', media.length > 0, `${media.length}件`);
+  if (isEcho) ok('media を送り返した', media.length > 0, `${media.length}件`);
   ok('バイナリフレームを送っていない (31950回避)', binaryFrames === 0, `${binaryFrames}件`);
 
   const fieldsOk = media.every((m) => {
@@ -134,13 +153,15 @@ async function main() {
 
   const echoed = Buffer.concat(media.map((m) => Buffer.from(m.media.payload, 'base64')));
   const expected = Buffer.concat(sentPayloads.map((p) => Buffer.from(p, 'base64')));
-  ok('エコーされた音声バイト列が入力と完全一致', echoed.equals(expected),
-    `echo=${echoed.length}B expected=${expected.length}B`);
+  if (isEcho) {
+    ok('エコーされた音声バイト列が入力と完全一致', echoed.equals(expected),
+      `echo=${echoed.length}B expected=${expected.length}B`);
+  }
 
   const outBuf = Buffer.from(outboundPayload, 'base64');
   ok('outbound トラックをエコーしていない', !echoed.includes(outBuf));
 
-  ok('mark を送っている（バッファ深度計測）', marks.length > 0, `${marks.length}件`);
+  if (isEcho) ok('mark を送っている（バッファ深度計測）', marks.length > 0, `${marks.length}件`);
   const markFieldsOk = marks.every((m) => Object.keys(m).sort().join(',') === 'event,mark,streamSid'
     && Object.keys(m.mark).join(',') === 'name');
   ok('mark のフィールドが event/streamSid/mark.name のみ', markFieldsOk);
