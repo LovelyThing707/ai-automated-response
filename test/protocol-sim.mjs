@@ -42,7 +42,7 @@ async function main() {
   ok('track 属性を書いていない (31941回避)', !/<Stream[^>]*\strack=/.test(twiml));
   ok('<Say> が <Connect> より前', twiml.indexOf('<Say') < twiml.indexOf('<Connect>'));
   ok('</Connect> の後にも <Say> がある', twiml.lastIndexOf('<Say') > twiml.indexOf('</Connect>'));
-  ok('<Parameter> を含む', /<Parameter name="stage" value="1"/.test(twiml));
+  ok('Stream に name が付いている', /<Stream[^>]*\sname="[^"]+"/.test(twiml));
   ok('statusCallback が絶対URL', /statusCallback="https:\/\//.test(twiml));
 
   // ---- WebSocket ----
@@ -87,7 +87,7 @@ async function main() {
       accountSid: ACCOUNT_SID, streamSid: STREAM_SID, callSid: CALL_SID,
       tracks: ['inbound'],
       mediaFormat: { encoding: 'audio/x-mulaw', sampleRate: 8000, channels: 1 },
-      customParameters: { stage: '1' },
+      customParameters: {},
     },
   });
   await sleep(50);

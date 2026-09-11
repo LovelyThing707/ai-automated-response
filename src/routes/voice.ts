@@ -33,9 +33,10 @@ export function registerVoiceRoute(app: FastifyInstance): void {
     const from = typeof params.From === 'string' ? params.From : undefined;
     const to = typeof params.To === 'string' ? params.To : undefined;
 
-    // Stage 3 以降はここで仮予約日などを <Parameter> に載せる。
-    // クエリ文字列は Error 31920 になるため、これが通話ごとの値を渡す唯一の手段。
-    const twiml = buildVoiceTwiML({ hostname, parameters: { stage: '1' } });
+    // 通話ごとの値を Media Stream へ渡す必要が出たときは <Parameter> に載せる。
+    // <Stream url> にクエリ文字列を付けると Error 31920 になるため、これが唯一の手段。
+    // 現状は仮予約日を .env から読んでおり、渡すものが無いので空にしている。
+    const twiml = buildVoiceTwiML({ hostname });
 
     request.log.info({ callSid, from, to, hostname, method: request.method }, '着信 → TwiML を返却');
     return reply.code(200).type('text/xml; charset=utf-8').send(twiml);

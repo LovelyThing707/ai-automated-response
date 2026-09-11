@@ -1,21 +1,35 @@
 /**
  * DB 層を通話なしで検証する。
  *
- *   DATABASE_PATH=./data/_test.sqlite npx tsx test/db-check.ts
+ *   npm run test:db
  *
- * DATABASE_PATH を渡さないと本番のデモDBを汚すため、必ず指定すること
- * （指定漏れはこのスクリプト側で弾く）。
+ * **必ず専用のテストDBを使う。** config は import 時に DATABASE_PATH を読み切るため、
+ * 環境変数を差し替えてから db モジュールを動的 import する。
+ *
+ * （以前ここを「config が _test を含まなければ環境変数を書き換える」実装にしたところ、
+ *   config は既に確定済みで書き換えが効かず、最後の clearAllReceptions() が
+ *   本番のデモDBを消した。同じ失敗を繰り返さないこと。）
  */
 import fs from 'node:fs';
-import {
-  clearAllReceptions,
-  distinctBuildings,
-  getReception,
-  listReceptions,
-  saveReception,
-  type NewReception,
-} from '../src/db/index.js';
-import { config } from '../src/config.js';
+
+const TEST_DB = './data/_test.sqlite';
+process.env.DATABASE_PATH = TEST_DB;
+
+// 残骸を消してから始める（環境変数を設定した後、import より前に行う）
+for (const suffix of ['', '-wal', '-shm']) {
+  try {
+    fs.unlinkSync(TEST_DB + suffix);
+  } catch {
+    /* 無ければよい */
+  }
+}
+
+// ここで初めて読み込む。この時点の DATABASE_PATH が使われる。
+const { clearAllReceptions, distinctBuildings, getReception, listReceptions, saveReception } =
+  await import('../src/db/index.js');
+const { config } = await import('../src/config.js');
+
+type NewReception = Parameters<typeof saveReception>[0];
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -23,19 +37,10 @@ function check(name: string, ok: boolean, detail = ''): void {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
 }
 
+// 保険: 万が一テストDB以外を掴んでいたら、何もせず止まる。
 if (!config.databasePath.includes('_test')) {
-  console.error(
-    `安全のため中止します。DATABASE_PATH に _test を含むパスを指定してください（現在: ${config.databasePath}）`,
-  );
+  console.error(`安全のため中止します。テストDB以外を開いています: ${config.databasePath}`);
   process.exit(1);
-}
-// 前回の残骸を消してから始める
-for (const suffix of ['', '-wal', '-shm']) {
-  try {
-    fs.unlinkSync(config.databasePath + suffix);
-  } catch {
-    /* 無ければよい */
-  }
 }
 
 const base: NewReception = {
