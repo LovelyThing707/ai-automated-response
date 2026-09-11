@@ -12,7 +12,7 @@ const ok = (n, c, d = '') => results.push({ n, c, d });
 
 const STREAM_SID = 'MZ00000000000000000000000000000001';
 const CALL_SID = 'CA00000000000000000000000000000001';
-const ACCOUNT_SID = 'AC4fb80be2680848d7892f8fc9b7a9ae2a';
+const ACCOUNT_SID = 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 
 // 160バイトの μ-law フレーム（無音は 0xFF）にダミーの波形を混ぜる
 function frame(seed) {
