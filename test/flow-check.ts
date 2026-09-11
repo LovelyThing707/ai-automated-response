@@ -82,7 +82,7 @@ console.log('\n--- 状態機械: 確定パターン ---');
   const rc = s.recordResponse('confirm');
   check('confirm を受理し完了へ進む', rc.ok && s.nextStep.kind === 'complete', rc.next);
   check('confirm では希望日を拒否', s.recordPreferredDates({ date1: '2026-10-01' }).ok === false);
-  // CLAUDE.md「通話終了前に受付内容を復唱して確認」を構造的に担保する
+  // 要件定義「通話終了前に受付内容を復唱して確認」を構造的に担保する
   const beforeReview = s.complete();
   check('復唱前の完了を拒否', beforeReview.ok === false && beforeReview.next === 'review', beforeReview.next);
   s.markReviewed();

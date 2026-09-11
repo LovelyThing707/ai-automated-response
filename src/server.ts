@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const app = await buildServer();
   for (const message of warnings) app.log.warn(`[設定警告] ${message}`);
 
-  // 通話中の例外でプロセスが落ちないこと（CLAUDE.md のエラー処理要件）。
+  // 通話中の例外でプロセスが落ちないこと（要件定義のエラー処理要件）。
   process.on('uncaughtException', (err) => app.log.error({ err }, 'uncaughtException'));
   process.on('unhandledRejection', (err) => app.log.error({ err }, 'unhandledRejection'));
 

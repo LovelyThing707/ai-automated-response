@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.png binary
+
+# 内部向けの作業仕様書。納品ZIP（git archive）には含めない
+CLAUDE.md export-ignore

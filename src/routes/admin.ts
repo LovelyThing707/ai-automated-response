@@ -12,7 +12,7 @@ import { formatJa, parseIsoDate } from '../realtime/dates.js';
 /**
  * 受付内容の確認用画面。
  *
- * CLAUDE.md の指定どおり認証は無く、デザインにも凝らない。
+ * 要件定義の指定どおり認証は無く、デザインにも凝らない。
  * スコープは「一覧・詳細・簡易検索/絞り込み・デモデータ一括クリア」の4つだけで、
  * 受付内容の編集や個別削除、工事日程の確定機能は**契約で対象外**。
  */
@@ -127,7 +127,7 @@ function layout(title: string, body: string): string {
 }
 
 function renderList(rows: ReceptionRow[], filter: { building: string; status: string; q: string }): string {
-  // 絞り込み候補は、登録済みの値と CLAUDE.md の3件を合わせて重複を除く
+  // 絞り込み候補は、登録済みの値と 要件定義の3件を合わせて重複を除く
   const buildings = Array.from(new Set([...distinctBuildings(), ...BUILDINGS])).sort();
 
   const options = (values: readonly string[], selected: string): string =>

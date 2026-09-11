@@ -16,7 +16,7 @@ import { checkPreferredDate, jstToday, speakJa, toIso, type CalendarDate } from 
 export type SlotName = 'name_kana' | 'phone' | 'building' | 'room';
 export type ResponseType = 'confirm' | 'change' | 'decline';
 
-/** CLAUDE.md の会話フロー順。 */
+/** 要件定義の会話フロー順。 */
 export const SLOT_ORDER: SlotName[] = ['name_kana', 'phone', 'building', 'room'];
 
 const SLOT_LABEL: Record<SlotName, string> = {
@@ -68,7 +68,7 @@ export class ReceptionState {
   /** 第一〜第三希望日（ISO 文字列）。index 0 が第一希望。 */
   private readonly preferred: Array<string | undefined> = [undefined, undefined, undefined];
   private completed = false;
-  /** review_reception を通ったか。CLAUDE.md の「通話終了前に復唱して確認」を構造的に担保する。 */
+  /** review_reception を通ったか。要件定義の「通話終了前に復唱して確認」を構造的に担保する。 */
   private reviewed = false;
 
   private readonly handledCallIds = new Set<string>();

@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { addDays, formatJa, jstToday, parseIsoDate, speakJa, type CalendarDate } from './dates.js';
 
-/** CLAUDE.md で認識対象として確定している3件。これ以外は聞き返す。 */
+/** 要件定義で認識対象として確定している3件。これ以外は聞き返す。 */
 export const BUILDINGS = ['ライオンズマンション', 'ネスペマンション', 'テストマンション'] as const;
 
 /** 後方互換のための別名。日付整形は dates.ts が正。 */

@@ -19,7 +19,7 @@ import { TOOLS } from './tools.js';
  *  - temperature は GA の session から削除された
  *
  * EventEmitter ではなくコールバック方式にしているのは、未処理の error イベントで
- * プロセスが落ちるのを避けるため（CLAUDE.md「通話中の例外でプロセスが落ちないこと」）。
+ * プロセスが落ちるのを避けるため（要件定義「通話中の例外でプロセスが落ちないこと」）。
  */
 
 export interface OpenAiSessionEvents {

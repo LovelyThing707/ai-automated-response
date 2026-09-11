@@ -3,7 +3,7 @@
  *
  *   npx tsx test/seed-demo.ts
  *
- * CLAUDE.md の要件どおり、実在する個人情報は一切使わない。
+ * 要件定義の要件どおり、実在する個人情報は一切使わない。
  */
 import { listReceptions, saveReception } from '../src/db/index.js';
 
